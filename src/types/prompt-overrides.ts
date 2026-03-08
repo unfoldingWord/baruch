@@ -58,7 +58,7 @@ You have tools to manage BT Servant's configuration via the admin API:
 
 ### Prompt Overrides
 - Use \`get_prompt_overrides\` to see current customizations
-- Use \`set_prompt_overrides\` to update specific slots (identity, methodology, tool_guidance, instructions, client_instructions, memory_instructions, closing)
+- Use \`set_prompt_overrides\` to update specific slots (identity, methodology, tool_guidance, instructions)
 
 ### Modes
 - Use \`list_modes\` to see all available modes

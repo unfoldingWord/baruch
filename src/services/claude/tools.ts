@@ -12,15 +12,10 @@ export function buildGetPromptOverridesTool(): Anthropic.Tool {
   return {
     name: 'get_prompt_overrides',
     description:
-      'Read the current prompt overrides for an organization. Returns both the raw overrides and the resolved values (with defaults applied).',
+      'Read the current prompt overrides for the organization. Returns both the raw overrides and the resolved values (with defaults applied).',
     input_schema: {
       type: 'object',
-      properties: {
-        org: {
-          type: 'string',
-          description: 'Organization identifier. Defaults to the current org if not specified.',
-        },
-      },
+      properties: {},
       required: [],
     },
   };
@@ -30,15 +25,14 @@ export function buildSetPromptOverridesTool(): Anthropic.Tool {
   return {
     name: 'set_prompt_overrides',
     description:
-      'Update prompt override slots for an organization. Pass string values to set slots, or null to delete (revert to default). Only include the slots you want to change.',
+      'Update prompt override slots for the organization. Pass string values to set slots, or null to delete (revert to default). Only include the slots you want to change.',
     input_schema: {
       type: 'object',
       properties: {
-        org: { type: 'string', description: 'Organization identifier.' },
         overrides: {
           type: 'object',
           description:
-            'Object of slot updates. Valid slots: identity, methodology, tool_guidance, instructions, client_instructions, memory_instructions, closing. String values set the slot, null deletes it.',
+            'Object of slot updates. Valid slots: identity, methodology, tool_guidance, instructions. String values set the slot, null deletes it.',
           additionalProperties: { oneOf: [{ type: 'string' }, { type: 'null' }] },
         },
       },
@@ -51,12 +45,10 @@ export function buildListModesTool(): Anthropic.Tool {
   return {
     name: 'list_modes',
     description:
-      'List all prompt modes configured for an organization. Modes are named presets of prompt overrides.',
+      'List all prompt modes configured for the organization. Modes are named presets of prompt overrides.',
     input_schema: {
       type: 'object',
-      properties: {
-        org: { type: 'string', description: 'Organization identifier.' },
-      },
+      properties: {},
       required: [],
     },
   };
@@ -69,7 +61,6 @@ export function buildGetModeTool(): Anthropic.Tool {
     input_schema: {
       type: 'object',
       properties: {
-        org: { type: 'string', description: 'Organization identifier.' },
         name: { type: 'string', description: 'Mode name (slug, e.g., "mast-methodology").' },
       },
       required: ['name'],
@@ -85,7 +76,6 @@ export function buildCreateOrUpdateModeTool(): Anthropic.Tool {
     input_schema: {
       type: 'object',
       properties: {
-        org: { type: 'string', description: 'Organization identifier.' },
         name: {
           type: 'string',
           description: 'Mode name (lowercase alphanumeric with hyphens, e.g., "mast-methodology").',
@@ -110,7 +100,6 @@ export function buildDeleteModeTool(): Anthropic.Tool {
     input_schema: {
       type: 'object',
       properties: {
-        org: { type: 'string', description: 'Organization identifier.' },
         name: { type: 'string', description: 'Mode name to delete.' },
       },
       required: ['name'],
@@ -122,12 +111,10 @@ export function buildListMcpServersTool(): Anthropic.Tool {
   return {
     name: 'list_mcp_servers',
     description:
-      'List all MCP servers configured for an organization. MCP servers provide external tool integrations to BT Servant.',
+      'List all MCP servers configured for the organization. MCP servers provide external tool integrations to BT Servant.',
     input_schema: {
       type: 'object',
-      properties: {
-        org: { type: 'string', description: 'Organization identifier.' },
-      },
+      properties: {},
       required: [],
     },
   };
@@ -141,7 +128,6 @@ export function buildSetMcpServersTool(): Anthropic.Tool {
     input_schema: {
       type: 'object',
       properties: {
-        org: { type: 'string', description: 'Organization identifier.' },
         servers: {
           type: 'array',
           description: 'Array of MCP server configurations.',

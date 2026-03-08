@@ -11,7 +11,6 @@ export interface ProgressCallbackConfig {
   url: string;
   user_id: string;
   message_key: string;
-  token: string;
 }
 
 type CallbackPayloadType = 'status' | 'progress' | 'complete' | 'error';
@@ -76,10 +75,7 @@ export class ProgressCallbackSender {
     try {
       const response = await fetch(this.config.url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Engine-Token': this.config.token,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(fullPayload),
       });
 

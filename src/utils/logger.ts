@@ -1,5 +1,9 @@
 /**
  * Structured JSON logging for Cloudflare Workers Logs
+ *
+ * Uses console.error for log/info levels intentionally: Cloudflare Workers Logs
+ * only captures console.error and console.warn in the dashboard. console.log
+ * output is not visible in production logs.
  */
 
 interface LogEntry {

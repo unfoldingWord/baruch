@@ -43,6 +43,13 @@ Baruch is a Cloudflare Worker that powers an AI configuration assistant. Instead
 - E2E tests skip on Windows (SQLite/workerd incompatibility)
 - Run `pnpm test` before committing
 
+### Code Review Policy
+
+- After opening or updating a PR, always run the claude-code-review agent
+- Fix all issues found by the reviewer, including low-severity ones
+- After fixing, re-run the reviewer again
+- Keep iterating (fix → re-review) until the reviewer finds zero issues
+
 ### Prompt System
 
 Baruch has 4 admin-configurable prompt slots:

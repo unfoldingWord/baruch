@@ -157,7 +157,6 @@ export class UserSession {
       url: body.progress_callback_url,
       user_id: body.user_id,
       message_key: body.message_key,
-      token: this.env.ENGINE_API_KEY,
     });
     const throttleSeconds =
       typeof body.progress_throttle_seconds === 'number' && body.progress_throttle_seconds > 0
@@ -227,11 +226,14 @@ export class UserSession {
     this.processStreamingChat(body, sendEvent, writer, logger, startTime)
       .catch(async (error) => {
         logger.error('do_stream_error', error, { total_duration_ms: Date.now() - startTime });
-        await sendEvent({
-          type: 'error',
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
-        await writer.close();
+        try {
+          await sendEvent({
+            type: 'error',
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+        } catch {
+          // Writer may already be closed
+        }
       })
       .finally(() => this.releaseLock());
 
@@ -331,7 +333,11 @@ export class UserSession {
       });
       await sendEvent({ type: 'complete', response });
     } finally {
-      await writer.close();
+      try {
+        await writer.close();
+      } catch {
+        // Writer may already be closed by error handler
+      }
     }
   }
 

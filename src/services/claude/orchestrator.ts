@@ -236,9 +236,16 @@ export async function orchestrate(
   ctx.callbacks?.onStatus('Processing your request...');
 
   try {
+    let completed = false;
     for (let i = 0; i < maxIterations; i++) {
-      const done = await processIteration(ctx, i);
-      if (done) break;
+      completed = await processIteration(ctx, i);
+      if (completed) break;
+    }
+    if (!completed) {
+      ctx.logger.warn('orchestration_iteration_limit_reached', { maxIterations });
+      ctx.responses.push(
+        '[Note: I reached my processing limit for this request. My response may be incomplete. Please follow up if you need more.]'
+      );
     }
   } catch (error) {
     ctx.logger.error('claude_error', error);
@@ -255,7 +262,12 @@ async function executeToolCalls(
   toolCalls: ToolUseBlock[],
   ctx: OrchestrationContext
 ): Promise<Anthropic.ToolResultBlockParam[]> {
-  return Promise.all(toolCalls.map((tc) => executeSingleTool(tc, ctx)));
+  // Serialize tool execution to avoid race conditions on concurrent read+write
+  const results: Anthropic.ToolResultBlockParam[] = [];
+  for (const tc of toolCalls) {
+    results.push(await executeSingleTool(tc, ctx));
+  }
+  return results;
 }
 
 async function executeSingleTool(
@@ -336,7 +348,7 @@ async function dispatchAdminTool(
     );
   }
 
-  const org = typeof input.org === 'string' ? input.org : ctx.org;
+  const org = ctx.org;
   // eslint-disable-next-line security/detect-object-injection -- name is validated against known keys
   const handler = ADMIN_TOOL_HANDLERS[name];
 

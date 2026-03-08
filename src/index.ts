@@ -61,7 +61,7 @@ app.get('/api/v1/chat/queue/poll', async (c) => {
 });
 
 app.get('/api/v1/chat/queue/:userId', async (c) => {
-  return handleQueueStatus(c.req.raw, c.env, c.req.param('userId'));
+  return handleQueueStatus(c.req.raw, c.env, c.req.param('userId'), c.req.query('org'));
 });
 
 // User endpoints
@@ -288,12 +288,18 @@ async function handleQueuePoll(request: Request, env: Env): Promise<Response> {
 /**
  * Handle queue status (GET /api/v1/chat/queue/:userId)
  */
-async function handleQueueStatus(_request: Request, env: Env, userId: string): Promise<Response> {
+async function handleQueueStatus(
+  _request: Request,
+  env: Env,
+  userId: string,
+  orgParam: string | undefined
+): Promise<Response> {
   if (!userId) {
     return Response.json({ error: 'userId is required in path' }, { status: 400 });
   }
 
-  const doId = env.USER_QUEUE.idFromName(`queue:${env.DEFAULT_ORG}:${userId}`);
+  const org = orgParam || env.DEFAULT_ORG;
+  const doId = env.USER_QUEUE.idFromName(`queue:${org}:${userId}`);
   const stub = env.USER_QUEUE.get(doId);
 
   return stub.fetch(new Request(`${DO_BASE_URL}/status`));
