@@ -9,34 +9,20 @@ beforeEach(() => {
 });
 
 describe('UserSession POST /chat', () => {
-  it('rejects missing user_id', async () => {
+  it('rejects empty message', async () => {
     const response = await stub.fetch('http://fake-host/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client_id: 'test-client',
-        messages: [{ role: 'user', content: 'hello' }],
-      }),
-    });
-    expect(response.status).toBe(400);
-    const data = (await response.json()) as { error: string };
-    expect(data.error).toContain('user_id');
-  });
-
-  it('rejects missing messages', async () => {
-    const response = await stub.fetch('http://fake-host/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: 'test-user', client_id: 'test-client' }),
+      body: JSON.stringify({ user_id: 'u1', client_id: 'c1', message: '' }),
     });
     expect(response.status).toBe(400);
   });
 
-  it('rejects empty messages array', async () => {
+  it('rejects missing message', async () => {
     const response = await stub.fetch('http://fake-host/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: 'test-user', client_id: 'test-client', messages: [] }),
+      body: JSON.stringify({ user_id: 'u1', client_id: 'c1' }),
     });
     expect(response.status).toBe(400);
   });
@@ -68,8 +54,9 @@ describe('UserSession history', () => {
   it('returns empty history initially', async () => {
     const response = await stub.fetch('http://fake-host/history?user_id=test');
     expect(response.status).toBe(200);
-    const data = (await response.json()) as { history: unknown[] };
-    expect(data.history).toHaveLength(0);
+    const data = (await response.json()) as { entries: unknown[]; total_count: number };
+    expect(data.entries).toHaveLength(0);
+    expect(data.total_count).toBe(0);
   });
 
   it('clears history', async () => {

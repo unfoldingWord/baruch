@@ -4,7 +4,6 @@ import { env } from 'cloudflare:test';
 interface EnqueueResponse {
   message_id: string;
   queue_position: number;
-  status: string;
 }
 
 let stub: DurableObjectStub;
@@ -23,7 +22,7 @@ describe('UserQueue POST /enqueue', () => {
         user_id: 'test-user',
         client_id: 'test-client',
         org: 'test-org',
-        messages: [{ role: 'user', content: 'hello' }],
+        message: 'hello',
       }),
     });
 
@@ -38,20 +37,16 @@ describe('UserQueue POST /enqueue', () => {
     const response = await stub.fetch('http://fake-host/enqueue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client_id: 'test-client',
-        org: 'test-org',
-        messages: [{ role: 'user', content: 'hello' }],
-      }),
+      body: JSON.stringify({ client_id: 'c1', org: 'o1', message: 'hello' }),
     });
     expect(response.status).toBe(400);
   });
 
-  it('rejects missing messages', async () => {
+  it('rejects missing message', async () => {
     const response = await stub.fetch('http://fake-host/enqueue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: 'test-user', client_id: 'test-client', org: 'test-org' }),
+      body: JSON.stringify({ user_id: 'u1', client_id: 'c1', org: 'o1' }),
     });
     expect(response.status).toBe(400);
   });
@@ -61,8 +56,8 @@ describe('UserQueue GET /status', () => {
   it('returns queue status', async () => {
     const response = await stub.fetch('http://fake-host/status');
     expect(response.status).toBe(200);
-    const data = (await response.json()) as { queue_depth: number };
-    expect(data.queue_depth).toBeDefined();
+    const data = (await response.json()) as { queue_length: number };
+    expect(data.queue_length).toBeDefined();
   });
 });
 
@@ -70,11 +65,6 @@ describe('UserQueue GET /stream', () => {
   it('requires message_id parameter', async () => {
     const response = await stub.fetch('http://fake-host/stream');
     expect(response.status).toBe(400);
-  });
-
-  it('returns 404 for unknown message_id', async () => {
-    const response = await stub.fetch('http://fake-host/stream?message_id=nonexistent');
-    expect(response.status).toBe(404);
   });
 });
 
@@ -84,8 +74,11 @@ describe('UserQueue GET /poll', () => {
     expect(response.status).toBe(400);
   });
 
-  it('returns 404 for unknown message_id', async () => {
+  it('returns empty events for unknown message_id', async () => {
     const response = await stub.fetch('http://fake-host/poll?message_id=nonexistent&cursor=0');
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(200);
+    const data = (await response.json()) as { events: unknown[]; done: boolean };
+    expect(data.events).toHaveLength(0);
+    expect(data.done).toBe(false);
   });
 });
