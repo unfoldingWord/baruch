@@ -1,0 +1,76 @@
+name = "baruch"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+ENVIRONMENT = "production"
+MAX_ORCHESTRATION_ITERATIONS = "10"
+DEFAULT_ORG = "unfoldingWord"
+
+# KV Namespaces (prod IDs — create via `wrangler kv:namespace create PROMPT_OVERRIDES`)
+[[kv_namespaces]]
+binding = "PROMPT_OVERRIDES"
+id = "TBD_PROD_PROMPT_OVERRIDES_ID"
+
+# Durable Objects
+[[durable_objects.bindings]]
+name = "USER_SESSION"
+class_name = "UserSession"
+
+[[durable_objects.bindings]]
+name = "USER_QUEUE"
+class_name = "UserQueue"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["UserSession"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["UserQueue"]
+
+# ──── Dev environment ────
+[env.dev]
+name = "baruch-dev"
+
+[env.dev.vars]
+ENVIRONMENT = "development"
+MAX_ORCHESTRATION_ITERATIONS = "10"
+DEFAULT_ORG = "unfoldingWord"
+
+[[env.dev.kv_namespaces]]
+binding = "PROMPT_OVERRIDES"
+id = "TBD_DEV_PROMPT_OVERRIDES_ID"
+
+[[env.dev.durable_objects.bindings]]
+name = "USER_SESSION"
+class_name = "UserSession"
+
+[[env.dev.durable_objects.bindings]]
+name = "USER_QUEUE"
+class_name = "UserQueue"
+
+# ──── Staging environment ────
+[env.staging]
+name = "baruch-staging"
+
+[env.staging.vars]
+ENVIRONMENT = "staging"
+MAX_ORCHESTRATION_ITERATIONS = "10"
+DEFAULT_ORG = "unfoldingWord"
+
+[[env.staging.kv_namespaces]]
+binding = "PROMPT_OVERRIDES"
+id = "TBD_STAGING_PROMPT_OVERRIDES_ID"
+
+[[env.staging.durable_objects.bindings]]
+name = "USER_SESSION"
+class_name = "UserSession"
+
+[[env.staging.durable_objects.bindings]]
+name = "USER_QUEUE"
+class_name = "UserQueue"
