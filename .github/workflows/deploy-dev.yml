@@ -40,7 +40,7 @@ jobs:
       - name: Set secrets
         run: |
           echo "${{ secrets.ANTHROPIC_API_KEY }}" | npx wrangler secret put ANTHROPIC_API_KEY --name baruch-dev
-          echo "${{ secrets.API_KEY_DEV }}" | npx wrangler secret put API_KEY --name baruch-dev
+          echo "${{ secrets.BARUCH_API_KEY_DEV }}" | npx wrangler secret put BARUCH_API_KEY --name baruch-dev
           echo "${{ secrets.ENGINE_API_KEY_DEV }}" | npx wrangler secret put ENGINE_API_KEY --name baruch-dev
           echo "https://staging-api.btservant.ai" | npx wrangler secret put ENGINE_BASE_URL --name baruch-dev
         env:

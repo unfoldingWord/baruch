@@ -31,7 +31,7 @@ app.use('/api/*', async (c, next) => {
   }
 
   const token = authHeader.slice(7);
-  if (!constantTimeCompare(token, c.env.API_KEY)) {
+  if (!constantTimeCompare(token, c.env.BARUCH_API_KEY)) {
     return c.json({ error: 'Invalid API key' }, 403);
   }
 

@@ -40,7 +40,7 @@ export default defineWorkersConfig({
             ENVIRONMENT: 'test',
             MAX_ORCHESTRATION_ITERATIONS: '10',
             DEFAULT_ORG: 'unfoldingWord',
-            API_KEY: 'test-api-key',
+            BARUCH_API_KEY: 'test-api-key',
             ENGINE_API_KEY: 'test-engine-api-key',
             ENGINE_BASE_URL: 'https://staging-api.btservant.ai',
             ANTHROPIC_API_KEY: anthropicKey,

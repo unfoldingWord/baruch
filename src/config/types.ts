@@ -15,7 +15,7 @@ export interface Env {
 
   // Secrets (set via wrangler secret put)
   ANTHROPIC_API_KEY: string;
-  API_KEY: string;
+  BARUCH_API_KEY: string;
   ENGINE_API_KEY: string;
   ENGINE_BASE_URL: string;
 
