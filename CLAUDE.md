@@ -19,6 +19,7 @@ Baruch is a Cloudflare Worker that powers an AI configuration assistant. Instead
 - Never run `wrangler deploy` directly — all deploys through CI/CD
 - Never merge a PR without user permission
 - Never commit secrets or `.dev.vars`
+- Never let security lint warnings (e.g. `security/detect-object-injection`) slide — fix the code or add an `eslint-disable-next-line` with a justification comment before merging
 
 ### Code Quality (Fitness Functions)
 
