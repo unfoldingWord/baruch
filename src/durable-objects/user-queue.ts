@@ -70,6 +70,8 @@ function parseEnqueueBody(body: Record<string, unknown>): QueueEntry | string {
     message: body.message as string,
     message_type: body.message_type === 'audio' ? ('audio' as const) : ('text' as const),
     org: body.org as string,
+    // is_admin is asserted by the upstream caller (admin portal BFF proxy).
+    // Baruch trusts the caller since requests are authenticated via BARUCH_API_KEY.
     is_admin: body.is_admin === true,
     enqueued_at: Date.now(),
     delivery: body.delivery === 'callback' ? ('callback' as const) : ('sse' as const),

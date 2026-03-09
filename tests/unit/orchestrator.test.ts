@@ -239,6 +239,21 @@ describe('orchestrate role-based tool filtering', () => {
     expect(tools).toHaveLength(10);
   });
 
+  it('rejects admin-only tool at dispatch layer for non-admins', async () => {
+    // Even if Claude somehow emits set_prompt_overrides, dispatch should reject it
+    mockCreate
+      .mockResolvedValueOnce(toolUseResponse('set_prompt_overrides', { overrides: {} }))
+      .mockResolvedValueOnce(textResponse('Noted'));
+
+    const result = await orchestrate('test', buildOptions({ isAdmin: false }));
+    expect(result).toEqual(['Noted']);
+    // The tool result should be an error
+    const secondCallMessages = mockCreate.mock.calls[1][0].messages;
+    const toolResult = secondCallMessages[secondCallMessages.length - 1];
+    expect(toolResult.content[0].is_error).toBe(true);
+    expect(toolResult.content[0].content).toContain('requires admin privileges');
+  });
+
   it('includes non-admin prompt section when isAdmin is false', async () => {
     mockCreate.mockResolvedValue(textResponse('Hi'));
     await orchestrate('test', buildOptions({ isAdmin: false }));

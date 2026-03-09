@@ -17,7 +17,13 @@ import { ClaudeAPIError, ValidationError } from '../../utils/errors.js';
 import { RequestLogger } from '../../utils/logger.js';
 import { MAX_MEMORY_SIZE_BYTES, UserMemoryStore } from '../memory/index.js';
 import { buildSystemPrompt, historyToMessages } from './system-prompt.js';
-import { buildTools, isAdminToolInput, isReadMemoryInput, isUpdateMemoryInput } from './tools.js';
+import {
+  ADMIN_ONLY_TOOLS,
+  buildTools,
+  isAdminToolInput,
+  isReadMemoryInput,
+  isUpdateMemoryInput,
+} from './tools.js';
 import {
   getPromptOverrides,
   setPromptOverrides,
@@ -69,6 +75,7 @@ interface OrchestrationContext {
   responses: string[];
   adminClient: AdminApiClient;
   org: string;
+  isAdmin: boolean;
   logger: RequestLogger;
   callbacks?: StreamCallbacks | undefined;
   memoryStore: UserMemoryStore | undefined;
@@ -209,6 +216,7 @@ function createOrchestrationContext(
     responses: [],
     adminClient,
     org,
+    isAdmin: options.isAdmin ?? false,
     logger,
     callbacks,
     memoryStore: options.memoryStore,
@@ -343,6 +351,11 @@ async function dispatchAdminTool(
     throw new ValidationError(
       `Invalid input for ${name}: expected object, got ${truncateInput(input)}`
     );
+  }
+
+  // Defense-in-depth: reject admin-only tools even if Claude emits them
+  if (ADMIN_ONLY_TOOLS.has(name) && !ctx.isAdmin) {
+    throw new ValidationError(`Tool ${name} requires admin privileges`);
   }
 
   const org = ctx.org;
