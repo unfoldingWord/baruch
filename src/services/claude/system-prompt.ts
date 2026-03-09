@@ -10,6 +10,9 @@
 import { ChatHistoryEntry } from '../../types/engine.js';
 import { PromptSlot } from '../../types/prompt-overrides.js';
 
+/** Synthetic trigger injected as the user turn for AI-initiated history entries. */
+export const SYNTHETIC_CONVERSATION_TRIGGER = 'Begin the conversation.';
+
 export interface OrchestrationPreferences {
   response_language: string;
   first_interaction: boolean;
@@ -87,7 +90,8 @@ export function historyToMessages(
   const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
 
   for (const entry of truncated) {
-    messages.push({ role: 'user', content: entry.user_message });
+    const userContent = entry.user_message || SYNTHETIC_CONVERSATION_TRIGGER;
+    messages.push({ role: 'user', content: userContent });
     messages.push({ role: 'assistant', content: entry.assistant_response });
   }
 
