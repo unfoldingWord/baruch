@@ -87,7 +87,8 @@ export function historyToMessages(
   const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
 
   for (const entry of truncated) {
-    messages.push({ role: 'user', content: entry.user_message });
+    const userContent = entry.user_message || 'Begin the conversation.';
+    messages.push({ role: 'user', content: userContent });
     messages.push({ role: 'assistant', content: entry.assistant_response });
   }
 

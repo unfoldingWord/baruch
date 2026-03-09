@@ -47,6 +47,10 @@ app.post('/api/v1/chat/stream', async (c) => {
   return handleChatRequest(c.req.raw, c.env, '/stream');
 });
 
+app.post('/api/v1/chat/initiate', async (c) => {
+  return handleChatRequest(c.req.raw, c.env, '/initiate');
+});
+
 // Queue endpoints (UserQueue DO)
 app.post('/api/v1/chat/queue', async (c) => {
   return handleMessageEnqueue(c.req.raw, c.env);

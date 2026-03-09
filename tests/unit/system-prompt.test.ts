@@ -98,4 +98,12 @@ describe('historyToMessages', () => {
   it('returns empty array for empty history', () => {
     expect(historyToMessages([])).toHaveLength(0);
   });
+
+  it('injects synthetic trigger for AI-initiated entries (empty user_message)', () => {
+    const history = [{ user_message: '', assistant_response: 'Hello!', timestamp: Date.now() }];
+    const messages = historyToMessages(history);
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toEqual({ role: 'user', content: 'Begin the conversation.' });
+    expect(messages[1]).toEqual({ role: 'assistant', content: 'Hello!' });
+  });
 });
