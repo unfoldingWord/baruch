@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { UserSession } from '../../src/durable-objects/user-session.js';
 import { Env } from '../../src/config/types.js';
+import * as claudeIndex from '../../src/services/claude/index.js';
 
 // Mock orchestrate to avoid real Claude calls
 vi.mock('../../src/services/claude/index.js', () => ({
@@ -205,5 +206,58 @@ describe('UserSession 404', () => {
   it('returns 404 for unknown routes', async () => {
     const res = await session.fetch(makeRequest('/nonexistent'));
     expect(res.status).toBe(404);
+  });
+});
+
+describe('UserSession initiate', () => {
+  const initiateBody = { user_id: 'u1', client_id: 'c1', is_admin: true };
+
+  it('calls orchestrate and stores AI-initiated entry on empty history', async () => {
+    const res = await session.fetch(makeRequest('/initiate', 'POST', initiateBody));
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.response).toBe('Mocked response');
+
+    const history = storageData.get('history') as Array<{
+      user_message: string;
+      assistant_response: string;
+    }>;
+    expect(history).toHaveLength(1);
+    expect(history[0]!.user_message).toBe('');
+    expect(history[0]!.assistant_response).toBe('Mocked response');
+  });
+
+  it('returns cached response idempotently without re-calling orchestrate', async () => {
+    storageData.set('history', [
+      { user_message: '', assistant_response: 'Cached opening', timestamp: Date.now() },
+    ]);
+
+    const orchestrateSpy = vi.spyOn(claudeIndex, 'orchestrate');
+    const res = await session.fetch(makeRequest('/initiate', 'POST', initiateBody));
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.response).toBe('Cached opening');
+    expect(orchestrateSpy).not.toHaveBeenCalled();
+  });
+
+  it('marks first_interaction false after generating opening', async () => {
+    const res = await session.fetch(makeRequest('/initiate', 'POST', initiateBody));
+    expect(res.status).toBe(200);
+    const prefs = storageData.get('preferences') as { first_interaction: boolean };
+    expect(prefs.first_interaction).toBe(false);
+  });
+
+  it('returns 500 when orchestrate throws', async () => {
+    vi.spyOn(claudeIndex, 'orchestrate').mockRejectedValueOnce(new Error('API failure'));
+    const res = await session.fetch(makeRequest('/initiate', 'POST', initiateBody));
+    expect(res.status).toBe(500);
+    const data = await res.json();
+    expect(data.code).toBe('INTERNAL_ERROR');
+  });
+
+  it('acquires lock and rejects concurrent initiate requests', async () => {
+    storageData.set('_processing_lock', Date.now());
+    const res = await session.fetch(makeRequest('/initiate', 'POST', initiateBody));
+    expect(res.status).toBe(429);
   });
 });

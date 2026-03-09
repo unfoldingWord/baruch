@@ -10,6 +10,7 @@
 import { Hono } from 'hono';
 import { Env } from '../config/types.js';
 import { orchestrate } from '../services/claude/index.js';
+import { SYNTHETIC_CONVERSATION_TRIGGER } from '../services/claude/system-prompt.js';
 import { formatTOCForPrompt, JsonMemoryStore } from '../services/memory/index.js';
 import {
   createWebhookCallbacks,
@@ -202,12 +203,16 @@ export class UserSession {
     }
   }
 
+  // Returns { response: string } rather than ChatResponse — no audio or
+  // response_language needed for the AI-initiated opening message.
   private async handleInitiate(request: Request): Promise<Response> {
     const requestId = crypto.randomUUID();
     const logger = createRequestLogger(requestId);
     const body = (await request.json()) as ChatRequest;
 
     const history = await this.getHistory();
+    // Invariant: history[0] is always an AI-initiated entry (user_message: '')
+    // because /initiate is the only path that creates the first history entry.
     if (history.length > 0) {
       return Response.json({ response: history[0]!.assistant_response });
     }
@@ -217,31 +222,41 @@ export class UserSession {
     const resolvedPromptValues = await this.resolvePrompts(logger);
     const { memoryStore, formattedTOC } = await this.loadMemoryContext(logger);
 
-    const responses = await orchestrate('Begin the conversation.', {
-      env: this.env,
-      org,
-      isAdmin: body.is_admin ?? false,
-      history: [],
-      preferences: {
-        response_language: preferences.response_language,
-        first_interaction: preferences.first_interaction,
-      },
-      resolvedPromptValues,
-      memoryStore,
-      memoryTOC: formattedTOC,
-      logger,
-    });
+    try {
+      const responses = await orchestrate(SYNTHETIC_CONVERSATION_TRIGGER, {
+        env: this.env,
+        org,
+        isAdmin: body.is_admin ?? false,
+        history: [],
+        preferences: {
+          response_language: preferences.response_language,
+          first_interaction: preferences.first_interaction,
+        },
+        resolvedPromptValues,
+        memoryStore,
+        memoryTOC: formattedTOC,
+        logger,
+      });
 
-    const assistantResponse = responses.join('\n');
-    await this.addHistoryEntry(
-      { user_message: '', assistant_response: assistantResponse, timestamp: Date.now() },
-      MAX_HISTORY_STORAGE
-    );
-    if (preferences.first_interaction) {
-      await this.updatePreferences({ ...preferences, first_interaction: false });
+      const assistantResponse = responses.join('\n');
+      await this.addHistoryEntry(
+        { user_message: '', assistant_response: assistantResponse, timestamp: Date.now() },
+        MAX_HISTORY_STORAGE
+      );
+      if (preferences.first_interaction) {
+        await this.updatePreferences({ ...preferences, first_interaction: false });
+      }
+
+      return Response.json({ response: assistantResponse });
+    } catch (error) {
+      logger.error('do_initiate_error', error);
+      return createErrorResponse(
+        'Internal server error',
+        'INTERNAL_ERROR',
+        'An unexpected error occurred while initiating the conversation.',
+        500
+      );
     }
-
-    return Response.json({ response: assistantResponse });
   }
 
   private async handleStreamingChatWithLock(request: Request): Promise<Response> {

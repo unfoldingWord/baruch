@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildSystemPrompt, historyToMessages } from '../../src/services/claude/system-prompt.js';
+import {
+  buildSystemPrompt,
+  historyToMessages,
+  SYNTHETIC_CONVERSATION_TRIGGER,
+} from '../../src/services/claude/system-prompt.js';
 import { DEFAULT_PROMPT_VALUES } from '../../src/types/prompt-overrides.js';
 
 const defaults = { ...DEFAULT_PROMPT_VALUES };
@@ -103,7 +107,7 @@ describe('historyToMessages', () => {
     const history = [{ user_message: '', assistant_response: 'Hello!', timestamp: Date.now() }];
     const messages = historyToMessages(history);
     expect(messages).toHaveLength(2);
-    expect(messages[0]).toEqual({ role: 'user', content: 'Begin the conversation.' });
+    expect(messages[0]).toEqual({ role: 'user', content: SYNTHETIC_CONVERSATION_TRIGGER });
     expect(messages[1]).toEqual({ role: 'assistant', content: 'Hello!' });
   });
 });
