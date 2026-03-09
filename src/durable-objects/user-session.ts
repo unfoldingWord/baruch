@@ -228,6 +228,8 @@ export class UserSession {
     });
   }
 
+  // TODO: extract a shared runStream(fn, sendEvent, writer) helper shared with
+  // processStreamingChat to unify the error-handling / writer-close pattern.
   private async runInitiateStream(
     body: ChatRequest,
     sendEvent: (event: SSEEvent) => Promise<void>,
@@ -260,15 +262,22 @@ export class UserSession {
     sendEvent: (event: SSEEvent) => Promise<void>,
     logger: RequestLogger
   ): Promise<void> {
-    const history = await this.getHistory();
+    const [history, preferences] = await Promise.all([this.getHistory(), this.getPreferences()]);
     if (history.length > 0) {
-      return this.streamCachedOpening(history[0]!.assistant_response, sendEvent);
+      // Lock is held during the typewriter replay. This is acceptable for typical opening
+      // message lengths; revisit if very long cached responses become common.
+      return this.streamCachedOpening(
+        history[0]!.assistant_response,
+        preferences.response_language,
+        sendEvent
+      );
     }
-    return this.streamFreshOpening(body, sendEvent, logger);
+    return this.streamFreshOpening(body, preferences, sendEvent, logger);
   }
 
   private async streamCachedOpening(
     cached: string,
+    responseLanguage: string,
     sendEvent: (event: SSEEvent) => Promise<void>
   ): Promise<void> {
     for (const word of cached.split(' ')) {
@@ -277,17 +286,21 @@ export class UserSession {
     }
     await sendEvent({
       type: 'complete',
-      response: { responses: [cached], response_language: 'en', voice_audio_base64: null },
+      response: {
+        responses: [cached],
+        response_language: responseLanguage,
+        voice_audio_base64: null,
+      },
     });
   }
 
   private async streamFreshOpening(
     body: ChatRequest,
+    preferences: UserPreferencesInternal,
     sendEvent: (event: SSEEvent) => Promise<void>,
     logger: RequestLogger
   ): Promise<void> {
     const org = resolveOrgFromBody(body, this.env.DEFAULT_ORG);
-    const preferences = await this.getPreferences();
     const resolvedPromptValues = await this.resolvePrompts(logger);
     const { memoryStore, formattedTOC } = await this.loadMemoryContext(logger);
 
