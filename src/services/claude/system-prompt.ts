@@ -17,6 +17,7 @@ export interface OrchestrationPreferences {
 
 interface SystemPromptOptions {
   memoryTOC?: string | undefined;
+  isAdmin?: boolean | undefined;
 }
 
 const MEMORY_INSTRUCTIONS = `## User Memory
@@ -34,13 +35,19 @@ export function buildSystemPrompt(
   resolvedPromptValues: Required<Record<PromptSlot, string>>,
   options?: SystemPromptOptions
 ): string {
-  const { memoryTOC } = options ?? {};
+  const { memoryTOC, isAdmin } = options ?? {};
   const sections: string[] = [];
 
   sections.push(resolvedPromptValues.identity);
   sections.push(resolvedPromptValues.methodology);
   sections.push(resolvedPromptValues.tool_guidance);
   sections.push(resolvedPromptValues.instructions);
+
+  if (isAdmin === false) {
+    sections.push(
+      '## Access Level\n\nThe current user is not an org admin. If they ask to change org-level prompt overrides or MCP server configuration, explain that those actions require admin privileges. Suggest alternatives like creating or updating modes instead.'
+    );
+  }
 
   // Memory instructions (always present so Claude knows tools exist)
   sections.push(MEMORY_INSTRUCTIONS);

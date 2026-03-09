@@ -424,6 +424,7 @@ export class UserSession {
     const responses = await orchestrate(body.message, {
       env: this.env,
       org,
+      isAdmin: body.is_admin ?? false,
       history,
       preferences: {
         response_language: preferences.response_language,

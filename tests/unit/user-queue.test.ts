@@ -194,6 +194,31 @@ describe('UserQueue 404', () => {
   });
 });
 
+describe('UserQueue is_admin passthrough', () => {
+  it('defaults is_admin to false when not provided', async () => {
+    const res = await queue.fetch(
+      makeRequest('/enqueue', 'POST', { user_id: 'u1', message: 'hi', org: 'testOrg' })
+    );
+    expect(res.status).toBe(202);
+    const queueEntries = storageData.get('queue') as Array<{ is_admin: boolean }>;
+    expect(queueEntries[0].is_admin).toBe(false);
+  });
+
+  it('preserves is_admin true when provided', async () => {
+    const res = await queue.fetch(
+      makeRequest('/enqueue', 'POST', {
+        user_id: 'u1',
+        message: 'hi',
+        org: 'testOrg',
+        is_admin: true,
+      })
+    );
+    expect(res.status).toBe(202);
+    const queueEntries = storageData.get('queue') as Array<{ is_admin: boolean }>;
+    expect(queueEntries[0].is_admin).toBe(true);
+  });
+});
+
 describe('UserQueue queue depth limit', () => {
   it('rejects when queue is full', async () => {
     // Fill the queue to default max (50)

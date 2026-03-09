@@ -24,6 +24,7 @@ export interface QueueEntry {
   progress_mode?: ProgressMode | undefined;
   message_key?: string | undefined;
   org: string;
+  is_admin: boolean;
   enqueued_at: number;
   /** Delivery mode: 'callback' for webhook, 'sse' for streaming */
   delivery: 'callback' | 'sse';

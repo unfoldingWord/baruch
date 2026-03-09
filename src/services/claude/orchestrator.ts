@@ -17,12 +17,7 @@ import { ClaudeAPIError, ValidationError } from '../../utils/errors.js';
 import { RequestLogger } from '../../utils/logger.js';
 import { MAX_MEMORY_SIZE_BYTES, UserMemoryStore } from '../memory/index.js';
 import { buildSystemPrompt, historyToMessages } from './system-prompt.js';
-import {
-  buildAllTools,
-  isAdminToolInput,
-  isReadMemoryInput,
-  isUpdateMemoryInput,
-} from './tools.js';
+import { buildTools, isAdminToolInput, isReadMemoryInput, isUpdateMemoryInput } from './tools.js';
 import {
   getPromptOverrides,
   setPromptOverrides,
@@ -47,6 +42,7 @@ function truncateInput(input: unknown): string {
 export interface OrchestratorOptions {
   env: Env;
   org: string;
+  isAdmin?: boolean;
   history: ChatHistoryEntry[];
   preferences: { response_language: string; first_interaction: boolean };
   resolvedPromptValues?: Required<Record<PromptSlot, string>>;
@@ -206,8 +202,9 @@ function createOrchestrationContext(
     maxTokens,
     systemPrompt: buildSystemPrompt(preferences, history, promptValues, {
       memoryTOC: options.memoryTOC,
+      isAdmin: options.isAdmin,
     }),
-    tools: buildAllTools(),
+    tools: buildTools(options.isAdmin ?? false),
     messages: [...historyToMessages(history, 5), { role: 'user', content: userMessage }],
     responses: [],
     adminClient,

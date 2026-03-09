@@ -221,6 +221,32 @@ describe('orchestrate memory tools', () => {
   });
 });
 
+describe('orchestrate role-based tool filtering', () => {
+  it('excludes admin-only tools when isAdmin is false', async () => {
+    mockCreate.mockResolvedValue(textResponse('Hi'));
+    await orchestrate('test', buildOptions({ isAdmin: false }));
+    const tools = mockCreate.mock.calls[0][0].tools;
+    const toolNames = tools.map((t: { name: string }) => t.name);
+    expect(toolNames).not.toContain('set_prompt_overrides');
+    expect(toolNames).not.toContain('set_mcp_servers');
+    expect(toolNames).toHaveLength(8);
+  });
+
+  it('includes all tools when isAdmin is true', async () => {
+    mockCreate.mockResolvedValue(textResponse('Hi'));
+    await orchestrate('test', buildOptions({ isAdmin: true }));
+    const tools = mockCreate.mock.calls[0][0].tools;
+    expect(tools).toHaveLength(10);
+  });
+
+  it('includes non-admin prompt section when isAdmin is false', async () => {
+    mockCreate.mockResolvedValue(textResponse('Hi'));
+    await orchestrate('test', buildOptions({ isAdmin: false }));
+    const systemPrompt = mockCreate.mock.calls[0][0].system;
+    expect(systemPrompt).toContain('not an org admin');
+  });
+});
+
 describe('orchestrate serialized tool execution', () => {
   it('executes multiple tools sequentially', async () => {
     const callOrder: number[] = [];
