@@ -56,6 +56,25 @@ describe('buildSystemPrompt', () => {
   });
 });
 
+describe('buildSystemPrompt access level', () => {
+  it('includes access level section for non-admins', () => {
+    const result = buildSystemPrompt(basePrefs, [], defaults, { isAdmin: false });
+    expect(result).toContain('Access Level');
+    expect(result).toContain('not an org admin');
+    expect(result).toContain('admin privileges');
+  });
+
+  it('omits access level section for admins', () => {
+    const result = buildSystemPrompt(basePrefs, [], defaults, { isAdmin: true });
+    expect(result).not.toContain('Access Level');
+  });
+
+  it('omits access level section when isAdmin is undefined', () => {
+    const result = buildSystemPrompt(basePrefs, [], defaults);
+    expect(result).not.toContain('Access Level');
+  });
+});
+
 describe('historyToMessages', () => {
   it('converts history to user/assistant pairs', () => {
     const history = [{ user_message: 'hello', assistant_response: 'hi', timestamp: Date.now() }];

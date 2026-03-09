@@ -18,7 +18,8 @@ import { RequestLogger } from '../../utils/logger.js';
 import { MAX_MEMORY_SIZE_BYTES, UserMemoryStore } from '../memory/index.js';
 import { buildSystemPrompt, historyToMessages } from './system-prompt.js';
 import {
-  buildAllTools,
+  ADMIN_ONLY_TOOLS,
+  buildTools,
   isAdminToolInput,
   isReadMemoryInput,
   isUpdateMemoryInput,
@@ -47,6 +48,7 @@ function truncateInput(input: unknown): string {
 export interface OrchestratorOptions {
   env: Env;
   org: string;
+  isAdmin?: boolean;
   history: ChatHistoryEntry[];
   preferences: { response_language: string; first_interaction: boolean };
   resolvedPromptValues?: Required<Record<PromptSlot, string>>;
@@ -73,6 +75,7 @@ interface OrchestrationContext {
   responses: string[];
   adminClient: AdminApiClient;
   org: string;
+  isAdmin: boolean;
   logger: RequestLogger;
   callbacks?: StreamCallbacks | undefined;
   memoryStore: UserMemoryStore | undefined;
@@ -206,12 +209,14 @@ function createOrchestrationContext(
     maxTokens,
     systemPrompt: buildSystemPrompt(preferences, history, promptValues, {
       memoryTOC: options.memoryTOC,
+      isAdmin: options.isAdmin,
     }),
-    tools: buildAllTools(),
+    tools: buildTools(options.isAdmin ?? false),
     messages: [...historyToMessages(history, 5), { role: 'user', content: userMessage }],
     responses: [],
     adminClient,
     org,
+    isAdmin: options.isAdmin ?? false,
     logger,
     callbacks,
     memoryStore: options.memoryStore,
@@ -346,6 +351,11 @@ async function dispatchAdminTool(
     throw new ValidationError(
       `Invalid input for ${name}: expected object, got ${truncateInput(input)}`
     );
+  }
+
+  // Defense-in-depth: reject admin-only tools even if Claude emits them
+  if (ADMIN_ONLY_TOOLS.has(name) && !ctx.isAdmin) {
+    throw new ValidationError(`Tool ${name} requires admin privileges`);
   }
 
   const org = ctx.org;

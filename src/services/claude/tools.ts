@@ -199,6 +199,16 @@ export function buildUpdateMemoryTool(): Anthropic.Tool {
   };
 }
 
+/** Tools that require admin privileges (org-level writes) */
+export const ADMIN_ONLY_TOOLS = new Set(['set_prompt_overrides', 'set_mcp_servers']);
+
+/** Build tools filtered by role. Non-admins get 8 tools (no org-level writes). */
+export function buildTools(isAdmin: boolean): Anthropic.Tool[] {
+  const all = buildAllTools();
+  if (isAdmin) return all;
+  return all.filter((t) => !ADMIN_ONLY_TOOLS.has(t.name));
+}
+
 /** Build all 10 tool definitions for Baruch */
 export function buildAllTools(): Anthropic.Tool[] {
   return [

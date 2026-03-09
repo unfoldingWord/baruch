@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildAllTools,
+  buildTools,
+  ADMIN_ONLY_TOOLS,
   isReadMemoryInput,
   isUpdateMemoryInput,
   isAdminToolInput,
@@ -32,6 +34,46 @@ describe('buildAllTools', () => {
     expect(names).toContain('set_mcp_servers');
     expect(names).toContain('read_memory');
     expect(names).toContain('update_memory');
+  });
+});
+
+describe('buildTools role filtering', () => {
+  it('returns all 10 tools for admins', () => {
+    const tools = buildTools(true);
+    expect(tools).toHaveLength(10);
+  });
+
+  it('returns 8 tools for non-admins', () => {
+    const tools = buildTools(false);
+    expect(tools).toHaveLength(8);
+  });
+
+  it('excludes set_prompt_overrides for non-admins', () => {
+    const names = buildTools(false).map((t) => t.name);
+    expect(names).not.toContain('set_prompt_overrides');
+  });
+
+  it('excludes set_mcp_servers for non-admins', () => {
+    const names = buildTools(false).map((t) => t.name);
+    expect(names).not.toContain('set_mcp_servers');
+  });
+
+  it('includes read-only and mode tools for non-admins', () => {
+    const names = buildTools(false).map((t) => t.name);
+    expect(names).toContain('get_prompt_overrides');
+    expect(names).toContain('list_modes');
+    expect(names).toContain('get_mode');
+    expect(names).toContain('create_or_update_mode');
+    expect(names).toContain('delete_mode');
+    expect(names).toContain('list_mcp_servers');
+    expect(names).toContain('read_memory');
+    expect(names).toContain('update_memory');
+  });
+
+  it('ADMIN_ONLY_TOOLS contains exactly 2 tools', () => {
+    expect(ADMIN_ONLY_TOOLS.size).toBe(2);
+    expect(ADMIN_ONLY_TOOLS.has('set_prompt_overrides')).toBe(true);
+    expect(ADMIN_ONLY_TOOLS.has('set_mcp_servers')).toBe(true);
   });
 });
 

@@ -24,6 +24,7 @@ export interface ChatRequest {
   message_key?: string;
   org?: string;
   org_id?: string;
+  is_admin?: boolean;
 }
 
 export interface ChatResponse {
