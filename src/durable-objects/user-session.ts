@@ -77,7 +77,6 @@ export class UserSession {
 
     this.app = new Hono();
     this.app.post('/chat', (c) => this.handleChat(c.req.raw));
-    this.app.post('/initiate', (c) => this.handleInitiate(c.req.raw));
     this.app.get('/preferences', () => this.handleGetPreferences());
     this.app.put('/preferences', (c) => this.handleUpdatePreferences(c.req.raw));
     this.app.get('/history', (c) => this.handleGetHistory(new URL(c.req.url)));
@@ -97,6 +96,10 @@ export class UserSession {
 
       if (url.pathname === '/stream') {
         return this.handleStreamingChatWithLock(request);
+      }
+
+      if (url.pathname === '/initiate') {
+        return this.handleInitiateStreamWithLock(request);
       }
 
       try {
@@ -203,60 +206,143 @@ export class UserSession {
     }
   }
 
-  // Returns { response: string } rather than ChatResponse — no audio or
-  // response_language needed for the AI-initiated opening message.
-  private async handleInitiate(request: Request): Promise<Response> {
-    const requestId = crypto.randomUUID();
-    const logger = createRequestLogger(requestId);
+  private async handleInitiateStreamWithLock(request: Request): Promise<Response> {
     const body = (await request.json()) as ChatRequest;
+    const logger = createRequestLogger(crypto.randomUUID());
+    const { readable, writable } = new TransformStream();
+    const writer = writable.getWriter();
+    const encoder = new TextEncoder();
 
-    const history = await this.getHistory();
-    // Invariant: history[0] is always an AI-initiated entry (user_message: '')
-    // because /initiate is the only path that creates the first history entry.
-    if (history.length > 0) {
-      return Response.json({ response: history[0]!.assistant_response });
+    const sendEvent = async (event: SSEEvent): Promise<void> => {
+      await writer.write(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+    };
+
+    this.runInitiateStream(body, sendEvent, writer, logger).finally(() => this.releaseLock());
+
+    return new Response(readable, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      },
+    });
+  }
+
+  // TODO: extract a shared runStream(fn, sendEvent, writer) helper shared with
+  // processStreamingChat to unify the error-handling / writer-close pattern.
+  private async runInitiateStream(
+    body: ChatRequest,
+    sendEvent: (event: SSEEvent) => Promise<void>,
+    writer: WritableStreamDefaultWriter<Uint8Array>,
+    logger: RequestLogger
+  ): Promise<void> {
+    try {
+      await this.doInitiateStream(body, sendEvent, logger);
+    } catch (error) {
+      logger.error('do_initiate_error', error);
+      try {
+        await sendEvent({
+          type: 'error',
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      } catch {
+        // Writer may already be closed
+      }
+    } finally {
+      try {
+        await writer.close();
+      } catch {
+        // Writer may already be closed
+      }
     }
+  }
 
+  private async doInitiateStream(
+    body: ChatRequest,
+    sendEvent: (event: SSEEvent) => Promise<void>,
+    logger: RequestLogger
+  ): Promise<void> {
+    const [history, preferences] = await Promise.all([this.getHistory(), this.getPreferences()]);
+    if (history.length > 0) {
+      // Lock is held during the typewriter replay. This is acceptable for typical opening
+      // message lengths; revisit if very long cached responses become common.
+      return this.streamCachedOpening(
+        history[0]!.assistant_response,
+        preferences.response_language,
+        sendEvent
+      );
+    }
+    return this.streamFreshOpening(body, preferences, sendEvent, logger);
+  }
+
+  private async streamCachedOpening(
+    cached: string,
+    responseLanguage: string,
+    sendEvent: (event: SSEEvent) => Promise<void>
+  ): Promise<void> {
+    for (const word of cached.split(' ')) {
+      await sendEvent({ type: 'progress', text: word + ' ' });
+      await new Promise<void>((r) => setTimeout(r, 25));
+    }
+    await sendEvent({
+      type: 'complete',
+      response: {
+        responses: [cached],
+        response_language: responseLanguage,
+        voice_audio_base64: null,
+      },
+    });
+  }
+
+  private async streamFreshOpening(
+    body: ChatRequest,
+    preferences: UserPreferencesInternal,
+    sendEvent: (event: SSEEvent) => Promise<void>,
+    logger: RequestLogger
+  ): Promise<void> {
     const org = resolveOrgFromBody(body, this.env.DEFAULT_ORG);
-    const preferences = await this.getPreferences();
     const resolvedPromptValues = await this.resolvePrompts(logger);
     const { memoryStore, formattedTOC } = await this.loadMemoryContext(logger);
 
-    try {
-      const responses = await orchestrate(SYNTHETIC_CONVERSATION_TRIGGER, {
-        env: this.env,
-        org,
-        isAdmin: body.is_admin ?? false,
-        history: [],
-        preferences: {
-          response_language: preferences.response_language,
-          first_interaction: preferences.first_interaction,
-        },
-        resolvedPromptValues,
-        memoryStore,
-        memoryTOC: formattedTOC,
-        logger,
-      });
+    const callbacks: StreamCallbacks = {
+      onStatus: async (message) => sendEvent({ type: 'status', message }),
+      onProgress: async (text) => sendEvent({ type: 'progress', text }),
+      onComplete: async () => {},
+      onError: async (error) => sendEvent({ type: 'error', error }),
+    };
 
-      const assistantResponse = responses.join('\n');
-      await this.addHistoryEntry(
-        { user_message: '', assistant_response: assistantResponse, timestamp: Date.now() },
-        MAX_HISTORY_STORAGE
-      );
-      if (preferences.first_interaction) {
-        await this.updatePreferences({ ...preferences, first_interaction: false });
-      }
+    const responses = await orchestrate(SYNTHETIC_CONVERSATION_TRIGGER, {
+      env: this.env,
+      org,
+      isAdmin: body.is_admin ?? false,
+      history: [],
+      preferences: {
+        response_language: preferences.response_language,
+        first_interaction: preferences.first_interaction,
+      },
+      resolvedPromptValues,
+      memoryStore,
+      memoryTOC: formattedTOC,
+      logger,
+      callbacks,
+    });
 
-      return Response.json({ response: assistantResponse });
-    } catch (error) {
-      logger.error('do_initiate_error', error);
-      return createErrorResponse(
-        'Internal server error',
-        'INTERNAL_ERROR',
-        'An unexpected error occurred while initiating the conversation.',
-        500
-      );
+    const assistantResponse = responses.join('\n');
+    await this.addHistoryEntry(
+      { user_message: '', assistant_response: assistantResponse, timestamp: Date.now() },
+      MAX_HISTORY_STORAGE
+    );
+    if (preferences.first_interaction) {
+      await this.updatePreferences({ ...preferences, first_interaction: false });
     }
+    await sendEvent({
+      type: 'complete',
+      response: {
+        responses,
+        response_language: preferences.response_language,
+        voice_audio_base64: null,
+      },
+    });
   }
 
   private async handleStreamingChatWithLock(request: Request): Promise<Response> {

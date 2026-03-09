@@ -18,10 +18,12 @@ function buildEntry(
   requestId: string,
   userId: string | undefined,
   event: string,
+  level: 'info' | 'warn' | 'error',
   data: Record<string, unknown>
 ): string {
   const entry: LogEntry = {
     event,
+    level,
     request_id: requestId,
     timestamp: Date.now(),
     ...data,
@@ -40,17 +42,17 @@ function extractErrorFields(error: unknown): Record<string, unknown> {
 export function createRequestLogger(requestId: string, userId?: string) {
   return {
     log: (event: string, data: Record<string, unknown> = {}) => {
-      console.error(buildEntry(requestId, userId, event, data));
+      console.error(buildEntry(requestId, userId, event, 'info', data));
     },
     info: (event: string, data: Record<string, unknown> = {}) => {
-      console.error(buildEntry(requestId, userId, event, data));
+      console.error(buildEntry(requestId, userId, event, 'info', data));
     },
     warn: (event: string, data: Record<string, unknown> = {}) => {
-      console.warn(buildEntry(requestId, userId, event, data));
+      console.warn(buildEntry(requestId, userId, event, 'warn', data));
     },
     error: (event: string, error: unknown, extra: Record<string, unknown> = {}) => {
       console.error(
-        buildEntry(requestId, userId, event, { ...extractErrorFields(error), ...extra })
+        buildEntry(requestId, userId, event, 'error', { ...extractErrorFields(error), ...extra })
       );
     },
   };

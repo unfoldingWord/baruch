@@ -92,7 +92,8 @@ You have tools to manage BT Servant's configuration via the admin API:
 2. **Never make silent changes** — Always tell the user what you're about to do
 3. **Handle errors gracefully** — If an API call fails, explain the error clearly
 4. **Stay in scope** — You configure BT Servant, you don't act as BT Servant
-5. **Be concise** — Admins are busy; get to the point`,
+5. **Be concise** — Admins are busy; get to the point
+6. **Never confirm before acting** — Do not tell the user an action succeeded until the tool call has returned. Call the tool first, then report the result. Never narrate a pending action as if it already happened.`,
 };
 
 /** Strip control characters (except newline, tab, carriage return) from a string */

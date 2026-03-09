@@ -209,50 +209,68 @@ describe('UserSession 404', () => {
   });
 });
 
+async function collectSSEEvents(res: Response): Promise<Record<string, unknown>[]> {
+  const text = await res.text();
+  return text
+    .split('\n\n')
+    .filter((chunk) => chunk.startsWith('data: '))
+    .map((chunk) => JSON.parse(chunk.slice(6)) as Record<string, unknown>);
+}
+
 describe('UserSession initiate', () => {
   const initiateBody = { user_id: 'u1', client_id: 'c1', is_admin: true };
 
-  it('calls orchestrate and stores AI-initiated entry on empty history', async () => {
+  it('streams SSE and stores AI-initiated entry on empty history', async () => {
     const res = await session.fetch(makeRequest('/initiate', 'POST', initiateBody));
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.response).toBe('Mocked response');
+    expect(res.headers.get('Content-Type')).toBe('text/event-stream');
 
-    const history = storageData.get('history') as Array<{
-      user_message: string;
-      assistant_response: string;
-    }>;
+    const events = await collectSSEEvents(res);
+    const completeEvent = events.find((e) => e['type'] === 'complete');
+
+    expect(completeEvent).toBeDefined();
+    const response = completeEvent!['response'] as { responses: string[] };
+    expect(response.responses).toContain('Mocked response');
+
+    const history = storageData.get('history') as { assistant_response: string }[];
     expect(history).toHaveLength(1);
-    expect(history[0]!.user_message).toBe('');
     expect(history[0]!.assistant_response).toBe('Mocked response');
   });
 
-  it('returns cached response idempotently without re-calling orchestrate', async () => {
+  it('streams cached response without re-calling orchestrate', async () => {
     storageData.set('history', [
       { user_message: '', assistant_response: 'Cached opening', timestamp: Date.now() },
     ]);
+    storageData.set('preferences', { response_language: 'es', first_interaction: false });
 
     const orchestrateSpy = vi.spyOn(claudeIndex, 'orchestrate');
-    const res = await session.fetch(makeRequest('/initiate', 'POST', initiateBody));
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.response).toBe('Cached opening');
+    const events = await collectSSEEvents(
+      await session.fetch(makeRequest('/initiate', 'POST', initiateBody))
+    );
+    const completeEvent = events.find((e) => e['type'] === 'complete');
+    expect(completeEvent).toBeDefined();
+    const response = completeEvent!['response'] as {
+      responses: string[];
+      response_language: string;
+    };
+    expect(response.responses).toContain('Cached opening');
+    expect(response.response_language).toBe('es');
     expect(orchestrateSpy).not.toHaveBeenCalled();
   });
 
   it('marks first_interaction false after generating opening', async () => {
-    const res = await session.fetch(makeRequest('/initiate', 'POST', initiateBody));
-    expect(res.status).toBe(200);
+    await (await session.fetch(makeRequest('/initiate', 'POST', initiateBody))).text();
     const prefs = storageData.get('preferences') as { first_interaction: boolean };
     expect(prefs.first_interaction).toBe(false);
   });
 
-  it('returns 500 when orchestrate throws', async () => {
+  it('sends error SSE event when orchestrate throws', async () => {
     vi.spyOn(claudeIndex, 'orchestrate').mockRejectedValueOnce(new Error('API failure'));
-    const res = await session.fetch(makeRequest('/initiate', 'POST', initiateBody));
-    expect(res.status).toBe(500);
-    const data = await res.json();
-    expect(data.code).toBe('INTERNAL_ERROR');
+    const events = await collectSSEEvents(
+      await session.fetch(makeRequest('/initiate', 'POST', initiateBody))
+    );
+    const errorEvent = events.find((e) => e['type'] === 'error');
+    expect(errorEvent).toBeDefined();
+    expect(errorEvent!['error']).toBe('API failure');
   });
 
   it('acquires lock and rejects concurrent initiate requests', async () => {
