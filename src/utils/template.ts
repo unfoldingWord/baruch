@@ -10,7 +10,8 @@ export function replaceTemplateVariables(
   variables: Record<string, string> = TEMPLATE_VARIABLES
 ): string {
   return text.replace(/\{\{(\w+)\}\}/g, (match, name: string) => {
-    const value = variables[name];
+    // eslint-disable-next-line security/detect-object-injection -- name is from \w+ regex (word chars only); Object.hasOwn guards prototype access
+    const value = Object.hasOwn(variables, name) ? variables[name] : undefined;
     return value !== undefined ? value : match;
   });
 }
@@ -20,6 +21,7 @@ export function applyTemplateVariables(
 ): Required<Record<PromptSlot, string>> {
   const result = { ...resolved };
   for (const slot of PROMPT_OVERRIDE_SLOTS) {
+    // eslint-disable-next-line security/detect-object-injection -- slot is from PROMPT_OVERRIDE_SLOTS constant
     result[slot] = replaceTemplateVariables(result[slot]);
   }
   return result;
