@@ -7,6 +7,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
+import { PROMPT_OVERRIDE_SLOTS } from '../../types/prompt-overrides.js';
 
 export function buildGetPromptOverridesTool(): Anthropic.Tool {
   return {
@@ -22,21 +23,28 @@ export function buildGetPromptOverridesTool(): Anthropic.Tool {
 }
 
 export function buildSetPromptOverridesTool(): Anthropic.Tool {
+  const properties: Record<string, object> = {};
+  for (const slot of PROMPT_OVERRIDE_SLOTS) {
+    // eslint-disable-next-line security/detect-object-injection -- slot is from PROMPT_OVERRIDE_SLOTS constant
+    properties[slot] = {
+      type: ['string', 'null'],
+      description: `${slot.replace(/_/g, ' ')} prompt override, or null to revert to default`,
+    };
+  }
+
   return {
     name: 'set_prompt_overrides',
-    description:
-      'Update prompt override slots for the organization. Pass string values to set slots, or null to delete (revert to default). Only include the slots you want to change.',
+    description: [
+      'Update prompt override slots for the organization. Pass slot values directly as top-level properties.',
+      'String values set the slot, null reverts to default. Only include slots you want to change.',
+      'Examples:',
+      '- { "identity": "You are a helpful Bible translation assistant" } — set one slot',
+      '- { "methodology": null } — revert a slot to default',
+      '- { "identity": "...", "instructions": null } — set one, revert another',
+    ].join(' '),
     input_schema: {
       type: 'object',
-      properties: {
-        overrides: {
-          type: 'object',
-          description:
-            'Object of slot updates. Valid slots: identity, methodology, tool_guidance, instructions. String values set the slot, null deletes it.',
-          additionalProperties: { oneOf: [{ type: 'string' }, { type: 'null' }] },
-        },
-      },
-      required: ['overrides'],
+      properties,
     },
   };
 }
@@ -274,4 +282,16 @@ export function isUpdateMemoryInput(
 /** Type guard for admin API tool input with optional org */
 export function isAdminToolInput(input: unknown): input is Record<string, unknown> {
   return typeof input === 'object' && input !== null && !Array.isArray(input);
+}
+
+const VALID_SLOTS = new Set<string>(PROMPT_OVERRIDE_SLOTS);
+
+/** Type guard for set_prompt_overrides input (flat slot properties) */
+export function isSetPromptOverridesInput(input: unknown): input is Record<string, string | null> {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) return false;
+  const entries = Object.entries(input as Record<string, unknown>);
+  if (entries.length === 0) return false;
+  return entries.every(
+    ([key, val]) => VALID_SLOTS.has(key) && (typeof val === 'string' || val === null)
+  );
 }

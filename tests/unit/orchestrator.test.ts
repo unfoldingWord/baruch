@@ -242,7 +242,7 @@ describe('orchestrate role-based tool filtering', () => {
   it('rejects admin-only tool at dispatch layer for non-admins', async () => {
     // Even if Claude somehow emits set_prompt_overrides, dispatch should reject it
     mockCreate
-      .mockResolvedValueOnce(toolUseResponse('set_prompt_overrides', { overrides: {} }))
+      .mockResolvedValueOnce(toolUseResponse('set_prompt_overrides', { identity: 'test' }))
       .mockResolvedValueOnce(textResponse('Noted'));
 
     const result = await orchestrate('test', buildOptions({ isAdmin: false }));
@@ -259,6 +259,41 @@ describe('orchestrate role-based tool filtering', () => {
     await orchestrate('test', buildOptions({ isAdmin: false }));
     const systemPrompt = mockCreate.mock.calls[0][0].system;
     expect(systemPrompt).toContain('not an org admin');
+  });
+});
+
+describe('orchestrate set_prompt_overrides dispatch', () => {
+  it('dispatches valid flat input to admin API for admins', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ ok: true })));
+    mockCreate
+      .mockResolvedValueOnce(
+        toolUseResponse('set_prompt_overrides', { identity: 'New identity prompt' })
+      )
+      .mockResolvedValueOnce(textResponse('Updated'));
+
+    const result = await orchestrate('set identity', buildOptions({ isAdmin: true }));
+    expect(result).toEqual(['Updated']);
+
+    const fetchCall = vi.mocked(fetch).mock.calls[0];
+    const url = fetchCall[0] as string;
+    expect(url).toContain('/orgs/testOrg/prompt-overrides');
+    const reqInit = fetchCall[1] as RequestInit;
+    expect(reqInit.method).toBe('PUT');
+    expect(JSON.parse(reqInit.body as string)).toEqual({ identity: 'New identity prompt' });
+  });
+
+  it('returns validation error for invalid input from admin', async () => {
+    mockCreate
+      .mockResolvedValueOnce(toolUseResponse('set_prompt_overrides', { identity: 123 }))
+      .mockResolvedValueOnce(textResponse('I see the error'));
+
+    const result = await orchestrate('set identity', buildOptions({ isAdmin: true }));
+    expect(result).toEqual(['I see the error']);
+
+    const secondCallMessages = mockCreate.mock.calls[1][0].messages;
+    const toolResult = secondCallMessages[secondCallMessages.length - 1];
+    expect(toolResult.content[0].is_error).toBe(true);
+    expect(toolResult.content[0].content).toContain('Invalid input for set_prompt_overrides');
   });
 });
 
