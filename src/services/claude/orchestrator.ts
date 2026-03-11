@@ -22,6 +22,7 @@ import {
   buildTools,
   isAdminToolInput,
   isReadMemoryInput,
+  isSetPromptOverridesInput,
   isUpdateMemoryInput,
 } from './tools.js';
 import {
@@ -331,8 +332,7 @@ type AdminToolHandler = (
 
 const ADMIN_TOOL_HANDLERS: Record<string, AdminToolHandler> = {
   get_prompt_overrides: (_input, org, ctx) => getPromptOverrides(ctx.adminClient, org),
-  set_prompt_overrides: (input, org, ctx) =>
-    setPromptOverrides(ctx.adminClient, org, input.overrides as Record<string, string | null>),
+  set_prompt_overrides: (input, org, ctx) => handleSetPromptOverrides(input, org, ctx),
   list_modes: (_input, org, ctx) => listModes(ctx.adminClient, org),
   get_mode: (input, org, ctx) => getMode(ctx.adminClient, org, input.name as string),
   create_or_update_mode: (input, org, ctx) => handleCreateOrUpdateMode(input, org, ctx),
@@ -367,6 +367,26 @@ async function dispatchAdminTool(
   }
 
   return handler(input, org, ctx);
+}
+
+async function handleSetPromptOverrides(
+  input: Record<string, unknown>,
+  org: string,
+  ctx: OrchestrationContext
+): Promise<unknown> {
+  ctx.logger.log('tool_input_received', { tool: 'set_prompt_overrides', input });
+
+  if (!isSetPromptOverridesInput(input)) {
+    ctx.logger.warn('tool_input_validation_failed', { tool: 'set_prompt_overrides', input });
+    throw new ValidationError(
+      'Invalid input for set_prompt_overrides: expected an object with at least one valid slot ' +
+        '(identity, methodology, tool_guidance, instructions) mapped to a string or null. ' +
+        `Got ${truncateInput(input)}`
+    );
+  }
+
+  ctx.logger.log('tool_input_validated', { tool: 'set_prompt_overrides', input });
+  return setPromptOverrides(ctx.adminClient, org, input);
 }
 
 async function handleCreateOrUpdateMode(

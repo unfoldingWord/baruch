@@ -242,7 +242,7 @@ describe('orchestrate role-based tool filtering', () => {
   it('rejects admin-only tool at dispatch layer for non-admins', async () => {
     // Even if Claude somehow emits set_prompt_overrides, dispatch should reject it
     mockCreate
-      .mockResolvedValueOnce(toolUseResponse('set_prompt_overrides', { overrides: {} }))
+      .mockResolvedValueOnce(toolUseResponse('set_prompt_overrides', { identity: 'test' }))
       .mockResolvedValueOnce(textResponse('Noted'));
 
     const result = await orchestrate('test', buildOptions({ isAdmin: false }));

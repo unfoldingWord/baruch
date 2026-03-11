@@ -2,10 +2,12 @@ import { describe, it, expect } from 'vitest';
 import {
   buildAllTools,
   buildTools,
+  buildSetPromptOverridesTool,
   ADMIN_ONLY_TOOLS,
   isReadMemoryInput,
   isUpdateMemoryInput,
   isAdminToolInput,
+  isSetPromptOverridesInput,
 } from '../../src/services/claude/tools.js';
 
 describe('buildAllTools', () => {
@@ -143,6 +145,68 @@ describe('isUpdateMemoryInput', () => {
 
   it('rejects empty key in sections', () => {
     expect(isUpdateMemoryInput({ sections: { '': 'value' } })).toBe(false);
+  });
+});
+
+describe('buildSetPromptOverridesTool schema', () => {
+  it('has flat slot properties instead of nested overrides', () => {
+    const tool = buildSetPromptOverridesTool();
+    const props = tool.input_schema.properties as Record<string, unknown>;
+    expect(props).toHaveProperty('identity');
+    expect(props).toHaveProperty('methodology');
+    expect(props).toHaveProperty('tool_guidance');
+    expect(props).toHaveProperty('instructions');
+    expect(props).not.toHaveProperty('overrides');
+  });
+
+  it('has no required fields', () => {
+    const tool = buildSetPromptOverridesTool();
+    expect(tool.input_schema.required).toBeUndefined();
+  });
+
+  it('description includes examples', () => {
+    const tool = buildSetPromptOverridesTool();
+    expect(tool.description).toContain('Examples');
+    expect(tool.description).toContain('"identity"');
+    expect(tool.description).toContain('null');
+  });
+});
+
+describe('isSetPromptOverridesInput', () => {
+  it('accepts a single slot set to a string', () => {
+    expect(isSetPromptOverridesInput({ identity: 'Hello' })).toBe(true);
+  });
+
+  it('accepts a single slot set to null', () => {
+    expect(isSetPromptOverridesInput({ methodology: null })).toBe(true);
+  });
+
+  it('accepts multiple valid slots', () => {
+    expect(isSetPromptOverridesInput({ identity: 'Hi', instructions: null })).toBe(true);
+  });
+
+  it('rejects empty object', () => {
+    expect(isSetPromptOverridesInput({})).toBe(false);
+  });
+
+  it('rejects non-object types', () => {
+    expect(isSetPromptOverridesInput(null)).toBe(false);
+    expect(isSetPromptOverridesInput('string')).toBe(false);
+    expect(isSetPromptOverridesInput([])).toBe(false);
+  });
+
+  it('rejects unknown slot names', () => {
+    expect(isSetPromptOverridesInput({ unknown_slot: 'value' })).toBe(false);
+  });
+
+  it('rejects non-string non-null values', () => {
+    expect(isSetPromptOverridesInput({ identity: 123 })).toBe(false);
+    expect(isSetPromptOverridesInput({ identity: true })).toBe(false);
+    expect(isSetPromptOverridesInput({ identity: { nested: 'object' } })).toBe(false);
+  });
+
+  it('rejects if any key is invalid even with valid keys present', () => {
+    expect(isSetPromptOverridesInput({ identity: 'Hello', bad_key: 'value' })).toBe(false);
   });
 });
 
