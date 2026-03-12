@@ -36,13 +36,3 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --env staging
-
-      - name: Set secrets
-        run: |
-          echo "${{ secrets.ANTHROPIC_API_KEY_STAGING }}" | npx wrangler secret put ANTHROPIC_API_KEY --name baruch-staging
-          echo "${{ secrets.BARUCH_API_KEY_STAGING }}" | npx wrangler secret put BARUCH_API_KEY --name baruch-staging
-          echo "${{ secrets.ENGINE_API_KEY_STAGING }}" | npx wrangler secret put ENGINE_API_KEY --name baruch-staging
-          echo "https://staging-api.btservant.ai" | npx wrangler secret put ENGINE_BASE_URL --name baruch-staging
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
