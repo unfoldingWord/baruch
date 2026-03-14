@@ -121,6 +121,25 @@ async function readResponseWithSizeLimit(
   return parts.join('');
 }
 
+/**
+ * Extract JSON payload from SSE-formatted responses.
+ * MCP Streamable HTTP transport may return `text/event-stream` with
+ * `event: message\ndata: {...}` wrapping around the JSON-RPC response.
+ */
+function extractJsonFromSSE(text: string, contentType: string | null): string {
+  const isSSE = contentType?.includes('text/event-stream');
+  if (!isSSE && text.trimStart().startsWith('{')) return text;
+
+  // Extract all data: lines and concatenate (handles multi-line data)
+  const dataLines: string[] = [];
+  for (const line of text.split('\n')) {
+    if (line.startsWith('data: ')) {
+      dataLines.push(line.slice(6));
+    }
+  }
+  return dataLines.length > 0 ? dataLines.join('') : text;
+}
+
 function parseJsonRpcResponse<T>(data: unknown, serverId: string): T {
   if (isJsonRpcResponse<T>(data)) {
     if (data.error) {
@@ -170,7 +189,8 @@ async function sendJsonRpcRequest<T>(
     }
 
     checkContentLengthHeader(response, maxResponseSizeBytes, server.id);
-    const text = await readResponseWithSizeLimit(response, maxResponseSizeBytes, server.id);
+    const rawText = await readResponseWithSizeLimit(response, maxResponseSizeBytes, server.id);
+    const text = extractJsonFromSSE(rawText, response.headers.get('content-type'));
     const data = JSON.parse(text) as unknown;
     return parseJsonRpcResponse<T>(data, server.id);
   } finally {
