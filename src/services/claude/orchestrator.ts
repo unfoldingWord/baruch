@@ -2,8 +2,8 @@
  * Claude Orchestrator for Baruch
  *
  * Main orchestration loop that:
- * 1. Sends messages to Claude with admin API tool definitions
- * 2. Executes tool calls (admin API + memory tools)
+ * 1. Sends messages to Claude with admin API + MCP tool definitions
+ * 2. Executes tool calls (memory → Baruch admin → bt-servant admin → MCP)
  * 3. Loops until Claude returns a final text response
  * 4. Supports streaming via callbacks
  */
@@ -21,6 +21,7 @@ import {
   catalogToolsToAnthropicTools,
   findTool,
   getMcpServers,
+  MCPServerConfig,
   setMcpServers as setBaruchMcpServersKV,
   ToolCatalog,
 } from '../mcp/index.js';
@@ -341,22 +342,28 @@ async function dispatchToolCall(
 ): Promise<unknown> {
   const { name, input } = toolCall;
 
+  // Memory tools (no admin check needed)
   if (name === 'read_memory') return handleReadMemory(input, ctx);
   if (name === 'update_memory') return handleUpdateMemory(input, ctx);
 
-  // Check if this is an MCP tool
-  if (ctx.mcpCatalog) {
-    const mcpTool = findTool(ctx.mcpCatalog, name);
-    if (mcpTool) {
-      return handleMcpToolCall(name, input, mcpTool.serverId, ctx);
-    }
+  // Baruch's own MCP server admin tools (admin check applied here)
+  if (name === 'get_baruch_mcp_servers') return handleGetBaruchMcpServers(ctx);
+  if (name === 'set_baruch_mcp_servers') {
+    if (!ctx.isAdmin) throw new ValidationError(`Tool ${name} requires admin privileges`);
+    return handleSetBaruchMcpServers(input, ctx);
   }
 
-  // Check Baruch's own MCP server admin tools
-  if (name === 'get_baruch_mcp_servers') return handleGetBaruchMcpServers(ctx);
-  if (name === 'set_baruch_mcp_servers') return handleSetBaruchMcpServers(input, ctx);
+  // Admin API tools (checked before MCP to prevent shadowing)
+  // eslint-disable-next-line security/detect-object-injection -- name checked against known keys inside
+  if (ADMIN_TOOL_HANDLERS[name]) return dispatchAdminTool(name, input, ctx);
 
-  return dispatchAdminTool(name, input, ctx);
+  // MCP tools (checked last — cannot shadow built-in tools)
+  if (ctx.mcpCatalog) {
+    const mcpTool = findTool(ctx.mcpCatalog, name);
+    if (mcpTool) return handleMcpToolCall(name, input, mcpTool.serverId, ctx);
+  }
+
+  throw new ValidationError(`Unknown tool: ${name}`);
 }
 
 async function handleMcpToolCall(
@@ -389,6 +396,17 @@ async function handleGetBaruchMcpServers(ctx: OrchestrationContext): Promise<unk
   return { servers };
 }
 
+function validateMcpServerEntry(entry: unknown, index: number): string | null {
+  if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+    return `servers[${index}] must be an object`;
+  }
+  const obj = entry as Record<string, unknown>;
+  if (typeof obj.id !== 'string' || !obj.id) return `servers[${index}].id is required`;
+  if (typeof obj.name !== 'string' || !obj.name) return `servers[${index}].name is required`;
+  if (typeof obj.url !== 'string' || !obj.url) return `servers[${index}].url is required`;
+  return null;
+}
+
 async function handleSetBaruchMcpServers(
   input: unknown,
   ctx: OrchestrationContext
@@ -399,7 +417,12 @@ async function handleSetBaruchMcpServers(
     );
   }
   const servers = (input as { servers: unknown[] }).servers;
-  await setBaruchMcpServersKV(ctx.env.PROMPT_OVERRIDES, servers as never[]);
+  for (let i = 0; i < servers.length; i++) {
+    // eslint-disable-next-line security/detect-object-injection -- i is a loop index
+    const error = validateMcpServerEntry(servers[i], i);
+    if (error) throw new ValidationError(`Invalid MCP server config: ${error}`);
+  }
+  await setBaruchMcpServersKV(ctx.env.PROMPT_OVERRIDES, servers as MCPServerConfig[]);
   return { success: true, server_count: servers.length };
 }
 
@@ -459,7 +482,7 @@ async function handleSetPromptOverrides(
     ctx.logger.warn('tool_input_validation_failed', { tool: 'set_prompt_overrides', input });
     throw new ValidationError(
       'Invalid input for set_prompt_overrides: expected an object with at least one valid slot ' +
-        '(identity, methodology, tool_guidance, instructions) mapped to a string or null. ' +
+        '(identity, methodology, tool_guidance, mcp_tool_guidance, instructions) mapped to a string or null. ' +
         `Got ${truncateInput(input)}`
     );
   }

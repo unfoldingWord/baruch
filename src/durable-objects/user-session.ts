@@ -1,9 +1,8 @@
 /**
  * UserSession Durable Object for Baruch
  *
- * Simplified from bt-servant-worker:
- * - No MCP config handling, mode selection, or user prompt overrides
  * - Single-tier prompt resolution (admin KV → defaults)
+ * - MCP tool discovery at chat time (parallel with prompt/memory loading)
  * - Passes org + engine credentials to orchestrator for admin API tools
  */
 

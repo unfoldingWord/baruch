@@ -25,6 +25,8 @@ const DISCOVERY_TIMEOUT_MS = 10000;
 const TOOL_CALL_TIMEOUT_MS = 30000;
 const DEFAULT_MAX_RESPONSE_SIZE_BYTES = 1048576; // 1MB
 
+let jsonRpcIdCounter = 0;
+
 /** JSON-RPC 2.0 request structure */
 interface JsonRpcRequest {
   jsonrpc: '2.0';
@@ -114,7 +116,9 @@ async function readResponseWithSizeLimit(
   }
 
   const decoder = new TextDecoder();
-  return chunks.map((chunk) => decoder.decode(chunk, { stream: true })).join('');
+  const parts = chunks.map((chunk) => decoder.decode(chunk, { stream: true }));
+  parts.push(decoder.decode()); // flush any remaining multi-byte sequence
+  return parts.join('');
 }
 
 function parseJsonRpcResponse<T>(data: unknown, serverId: string): T {
@@ -147,7 +151,7 @@ async function sendJsonRpcRequest<T>(
     jsonrpc: '2.0',
     method,
     params,
-    id: Date.now(),
+    id: ++jsonRpcIdCounter,
   };
 
   try {

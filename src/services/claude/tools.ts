@@ -1,8 +1,9 @@
 /**
  * Claude tool definitions for Baruch
  *
- * 10 tools total:
- * - 8 admin API tools (prompt overrides, modes, MCP servers)
+ * 12 built-in tools:
+ * - 8 admin API tools (prompt overrides, modes, MCP servers on bt-servant-worker)
+ * - 2 Baruch MCP server admin tools (get/set Baruch's own MCP config)
  * - 2 memory tools (read, update)
  */
 
@@ -265,7 +266,7 @@ export const ADMIN_ONLY_TOOLS = new Set([
   'set_baruch_mcp_servers',
 ]);
 
-/** Build tools filtered by role. Non-admins get 8 tools (no org-level writes). */
+/** Build tools filtered by role. Non-admins get 9 tools (no org-level writes). */
 export function buildTools(isAdmin: boolean): Anthropic.Tool[] {
   const all = buildAllTools();
   if (isAdmin) return all;
