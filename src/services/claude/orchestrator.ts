@@ -11,7 +11,14 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { Env } from '../../config/types.js';
 import { ChatHistoryEntry, StreamCallbacks } from '../../types/engine.js';
-import { DEFAULT_PROMPT_VALUES, PromptSlot } from '../../types/prompt-overrides.js';
+import {
+  DEFAULT_PROMPT_VALUES,
+  mergePromptOverrides,
+  PromptOverrides,
+  PromptSlot,
+  resolvePromptOverrides,
+  validatePromptOverrides,
+} from '../../types/prompt-overrides.js';
 import { AdminApiClient } from '../admin-api/index.js';
 import { ClaudeAPIError, MCPError, ValidationError } from '../../utils/errors.js';
 import { RequestLogger } from '../../utils/logger.js';
@@ -336,6 +343,15 @@ async function executeSingleTool(
   }
 }
 
+type BaruchToolHandler = (input: unknown, ctx: OrchestrationContext) => Promise<unknown>;
+
+const BARUCH_TOOL_HANDLERS: Record<string, BaruchToolHandler> = {
+  get_baruch_prompt_overrides: (_input, ctx) => handleGetBaruchPromptOverrides(ctx),
+  set_baruch_prompt_overrides: (input, ctx) => handleSetBaruchPromptOverrides(input, ctx),
+  get_baruch_mcp_servers: (_input, ctx) => handleGetBaruchMcpServers(ctx),
+  set_baruch_mcp_servers: (input, ctx) => handleSetBaruchMcpServers(input, ctx),
+};
+
 async function dispatchToolCall(
   toolCall: ToolUseBlock,
   ctx: OrchestrationContext
@@ -346,11 +362,14 @@ async function dispatchToolCall(
   if (name === 'read_memory') return handleReadMemory(input, ctx);
   if (name === 'update_memory') return handleUpdateMemory(input, ctx);
 
-  // Baruch's own MCP server admin tools (admin check applied here)
-  if (name === 'get_baruch_mcp_servers') return handleGetBaruchMcpServers(ctx);
-  if (name === 'set_baruch_mcp_servers') {
-    if (!ctx.isAdmin) throw new ValidationError(`Tool ${name} requires admin privileges`);
-    return handleSetBaruchMcpServers(input, ctx);
+  // Baruch self-config tools (admin check applied for writes)
+  // eslint-disable-next-line security/detect-object-injection -- name checked against BARUCH_TOOL_HANDLERS keys
+  const baruchHandler = BARUCH_TOOL_HANDLERS[name];
+  if (baruchHandler) {
+    if (ADMIN_ONLY_TOOLS.has(name) && !ctx.isAdmin) {
+      throw new ValidationError(`Tool ${name} requires admin privileges`);
+    }
+    return baruchHandler(input, ctx);
   }
 
   // Admin API tools (checked before MCP to prevent shadowing)
@@ -389,6 +408,31 @@ async function handleMcpToolCall(
     healthTracker: ctx.healthTracker,
   });
   return result.result;
+}
+
+async function handleGetBaruchPromptOverrides(ctx: OrchestrationContext): Promise<unknown> {
+  const org = ctx.env.DEFAULT_ORG;
+  const raw = (await ctx.env.PROMPT_OVERRIDES.get<PromptOverrides>(org, 'json')) ?? {};
+  const resolved = resolvePromptOverrides(raw);
+  return { overrides: raw, resolved };
+}
+
+async function handleSetBaruchPromptOverrides(
+  input: unknown,
+  ctx: OrchestrationContext
+): Promise<unknown> {
+  if (!isSetPromptOverridesInput(input)) {
+    throw new ValidationError(
+      `Invalid input for set_baruch_prompt_overrides: expected valid prompt slots. Got ${truncateInput(input)}`
+    );
+  }
+  const org = ctx.env.DEFAULT_ORG;
+  const existing = (await ctx.env.PROMPT_OVERRIDES.get<PromptOverrides>(org, 'json')) ?? {};
+  const merged = mergePromptOverrides(existing, input as PromptOverrides);
+  const error = validatePromptOverrides(merged);
+  if (error) throw new ValidationError(error);
+  await ctx.env.PROMPT_OVERRIDES.put(org, JSON.stringify(merged));
+  return { success: true, overrides: merged, resolved: resolvePromptOverrides(merged) };
 }
 
 async function handleGetBaruchMcpServers(ctx: OrchestrationContext): Promise<unknown> {

@@ -1,9 +1,9 @@
 /**
  * Claude tool definitions for Baruch
  *
- * 12 built-in tools:
- * - 8 admin API tools (prompt overrides, modes, MCP servers on bt-servant-worker)
- * - 2 Baruch MCP server admin tools (get/set Baruch's own MCP config)
+ * 14 built-in tools:
+ * - 8 bt-servant admin API tools (prompt overrides, modes, MCP servers on bt-servant-worker)
+ * - 4 Baruch self-config tools (get/set Baruch's own prompt overrides + MCP servers)
  * - 2 memory tools (read, update)
  */
 
@@ -208,6 +208,43 @@ export function buildUpdateMemoryTool(): Anthropic.Tool {
   };
 }
 
+export function buildGetBaruchPromptOverridesTool(): Anthropic.Tool {
+  return {
+    name: 'get_baruch_prompt_overrides',
+    description:
+      "Read Baruch's own prompt overrides. These control how Baruch itself behaves " +
+      '(NOT BT Servant). Returns raw overrides and resolved values with defaults applied.',
+    input_schema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  };
+}
+
+export function buildSetBaruchPromptOverridesTool(): Anthropic.Tool {
+  const properties: Record<string, object> = {};
+  for (const slot of PROMPT_OVERRIDE_SLOTS) {
+    // eslint-disable-next-line security/detect-object-injection -- slot is from PROMPT_OVERRIDE_SLOTS constant
+    properties[slot] = {
+      type: ['string', 'null'],
+      description: `${slot.replace(/_/g, ' ')} override for Baruch, or null to revert to default`,
+    };
+  }
+
+  return {
+    name: 'set_baruch_prompt_overrides',
+    description:
+      "Update Baruch's own prompt overrides. These control how Baruch itself behaves " +
+      '(NOT BT Servant). String values set the slot, null reverts to default. ' +
+      'Only include slots you want to change.',
+    input_schema: {
+      type: 'object',
+      properties,
+    },
+  };
+}
+
 export function buildGetBaruchMcpServersTool(): Anthropic.Tool {
   return {
     name: 'get_baruch_mcp_servers',
@@ -263,17 +300,18 @@ export function buildSetBaruchMcpServersTool(): Anthropic.Tool {
 export const ADMIN_ONLY_TOOLS = new Set([
   'set_prompt_overrides',
   'set_mcp_servers',
+  'set_baruch_prompt_overrides',
   'set_baruch_mcp_servers',
 ]);
 
-/** Build tools filtered by role. Non-admins get 9 tools (no org-level writes). */
+/** Build tools filtered by role. Non-admins get 10 tools (no org-level writes). */
 export function buildTools(isAdmin: boolean): Anthropic.Tool[] {
   const all = buildAllTools();
   if (isAdmin) return all;
   return all.filter((t) => !ADMIN_ONLY_TOOLS.has(t.name));
 }
 
-/** Build all 12 tool definitions for Baruch */
+/** Build all 14 tool definitions for Baruch */
 export function buildAllTools(): Anthropic.Tool[] {
   return [
     buildGetPromptOverridesTool(),
@@ -284,6 +322,8 @@ export function buildAllTools(): Anthropic.Tool[] {
     buildDeleteModeTool(),
     buildListMcpServersTool(),
     buildSetMcpServersTool(),
+    buildGetBaruchPromptOverridesTool(),
+    buildSetBaruchPromptOverridesTool(),
     buildGetBaruchMcpServersTool(),
     buildSetBaruchMcpServersTool(),
     buildReadMemoryTool(),
