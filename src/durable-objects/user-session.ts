@@ -11,7 +11,14 @@ import { Hono } from 'hono';
 import { Env } from '../config/types.js';
 import { orchestrate } from '../services/claude/index.js';
 import { SYNTHETIC_CONVERSATION_TRIGGER } from '../services/claude/system-prompt.js';
+import { getBuiltinToolNames } from '../services/claude/tools.js';
 import { formatTOCForPrompt, JsonMemoryStore } from '../services/memory/index.js';
+import {
+  buildToolCatalog,
+  discoverAllTools,
+  getMcpServers,
+  ToolCatalog,
+} from '../services/mcp/index.js';
 import {
   createWebhookCallbacks,
   DEFAULT_PROGRESS_MODE,
@@ -294,6 +301,15 @@ export class UserSession {
     });
   }
 
+  private async loadOrchestrationContext(logger: RequestLogger) {
+    const [resolvedPromptValues, memoryCtx, mcpCatalog] = await Promise.all([
+      this.resolvePrompts(logger),
+      this.loadMemoryContext(logger),
+      this.discoverMcpTools(logger),
+    ]);
+    return { resolvedPromptValues, ...memoryCtx, mcpCatalog };
+  }
+
   private async streamFreshOpening(
     body: ChatRequest,
     preferences: UserPreferencesInternal,
@@ -301,8 +317,7 @@ export class UserSession {
     logger: RequestLogger
   ): Promise<void> {
     const org = resolveOrgFromBody(body, this.env.DEFAULT_ORG);
-    const resolvedPromptValues = await this.resolvePrompts(logger);
-    const { memoryStore, formattedTOC } = await this.loadMemoryContext(logger);
+    const ctx = await this.loadOrchestrationContext(logger);
 
     const callbacks: StreamCallbacks = {
       onStatus: async (message) => sendEvent({ type: 'status', message }),
@@ -320,9 +335,10 @@ export class UserSession {
         response_language: preferences.response_language,
         first_interaction: preferences.first_interaction,
       },
-      resolvedPromptValues,
-      memoryStore,
-      memoryTOC: formattedTOC,
+      resolvedPromptValues: ctx.resolvedPromptValues,
+      memoryStore: ctx.memoryStore,
+      memoryTOC: ctx.formattedTOC,
+      mcpCatalog: ctx.mcpCatalog,
       logger,
       callbacks,
     });
@@ -550,6 +566,22 @@ export class UserSession {
     logger.log('phase_save_complete', { duration_ms: Date.now() - startTime });
   }
 
+  private async discoverMcpTools(logger: RequestLogger): Promise<ToolCatalog | undefined> {
+    try {
+      const servers = await getMcpServers(this.env.PROMPT_OVERRIDES);
+      const enabled = servers.filter((s) => s.enabled).sort((a, b) => a.priority - b.priority);
+
+      if (enabled.length === 0) return undefined;
+
+      const manifests = await discoverAllTools(enabled, logger);
+      const builtinNames = getBuiltinToolNames();
+      return buildToolCatalog(manifests, enabled, logger, builtinNames);
+    } catch (error) {
+      logger.error('mcp_discovery_pipeline_error', error);
+      return undefined;
+    }
+  }
+
   private async processChat(
     body: ChatRequest,
     logger: RequestLogger,
@@ -561,8 +593,7 @@ export class UserSession {
 
     const org = resolveOrgFromBody(body, this.env.DEFAULT_ORG);
     const { preferences, history } = await this.loadUserContext(logger);
-    const resolvedPromptValues = await this.resolvePrompts(logger);
-    const { memoryStore, formattedTOC } = await this.loadMemoryContext(logger);
+    const ctx = await this.loadOrchestrationContext(logger);
 
     const startTime = Date.now();
     const responses = await orchestrate(body.message, {
@@ -574,9 +605,10 @@ export class UserSession {
         response_language: preferences.response_language,
         first_interaction: preferences.first_interaction,
       },
-      resolvedPromptValues,
-      memoryStore,
-      memoryTOC: formattedTOC,
+      resolvedPromptValues: ctx.resolvedPromptValues,
+      memoryStore: ctx.memoryStore,
+      memoryTOC: ctx.formattedTOC,
+      mcpCatalog: ctx.mcpCatalog,
       logger,
       callbacks,
     });

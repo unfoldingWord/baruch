@@ -207,8 +207,63 @@ export function buildUpdateMemoryTool(): Anthropic.Tool {
   };
 }
 
+export function buildGetBaruchMcpServersTool(): Anthropic.Tool {
+  return {
+    name: 'get_baruch_mcp_servers',
+    description:
+      "Read Baruch's own MCP server configuration. These are the external tool servers that Baruch can use directly in conversations.",
+    input_schema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  };
+}
+
+export function buildSetBaruchMcpServersTool(): Anthropic.Tool {
+  return {
+    name: 'set_baruch_mcp_servers',
+    description:
+      "Replace Baruch's own MCP server configuration. These servers provide external tools that Baruch can use directly in conversations. Changes take effect on the next conversation.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        servers: {
+          type: 'array',
+          description: 'Array of MCP server configurations for Baruch.',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'Unique server identifier.' },
+              name: { type: 'string', description: 'Human-readable server name.' },
+              url: { type: 'string', description: 'MCP server URL.' },
+              authToken: { type: 'string', description: 'Optional Bearer token for auth.' },
+              enabled: { type: 'boolean', description: 'Whether the server is active.' },
+              priority: {
+                type: 'number',
+                description: 'Priority order (lower = higher priority).',
+              },
+              allowedTools: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Optional whitelist of tool names to expose from this server.',
+              },
+            },
+            required: ['id', 'name', 'url'],
+          },
+        },
+      },
+      required: ['servers'],
+    },
+  };
+}
+
 /** Tools that require admin privileges (org-level writes) */
-export const ADMIN_ONLY_TOOLS = new Set(['set_prompt_overrides', 'set_mcp_servers']);
+export const ADMIN_ONLY_TOOLS = new Set([
+  'set_prompt_overrides',
+  'set_mcp_servers',
+  'set_baruch_mcp_servers',
+]);
 
 /** Build tools filtered by role. Non-admins get 8 tools (no org-level writes). */
 export function buildTools(isAdmin: boolean): Anthropic.Tool[] {
@@ -217,7 +272,7 @@ export function buildTools(isAdmin: boolean): Anthropic.Tool[] {
   return all.filter((t) => !ADMIN_ONLY_TOOLS.has(t.name));
 }
 
-/** Build all 10 tool definitions for Baruch */
+/** Build all 12 tool definitions for Baruch */
 export function buildAllTools(): Anthropic.Tool[] {
   return [
     buildGetPromptOverridesTool(),
@@ -228,9 +283,16 @@ export function buildAllTools(): Anthropic.Tool[] {
     buildDeleteModeTool(),
     buildListMcpServersTool(),
     buildSetMcpServersTool(),
+    buildGetBaruchMcpServersTool(),
+    buildSetBaruchMcpServersTool(),
     buildReadMemoryTool(),
     buildUpdateMemoryTool(),
   ];
+}
+
+/** Set of all built-in tool names (for MCP collision detection) */
+export function getBuiltinToolNames(): Set<string> {
+  return new Set(buildAllTools().map((t) => t.name));
 }
 
 /** Maximum number of sections in a single read_memory request */

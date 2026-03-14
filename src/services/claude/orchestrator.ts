@@ -13,9 +13,18 @@ import { Env } from '../../config/types.js';
 import { ChatHistoryEntry, StreamCallbacks } from '../../types/engine.js';
 import { DEFAULT_PROMPT_VALUES, PromptSlot } from '../../types/prompt-overrides.js';
 import { AdminApiClient } from '../admin-api/index.js';
-import { ClaudeAPIError, ValidationError } from '../../utils/errors.js';
+import { ClaudeAPIError, MCPError, ValidationError } from '../../utils/errors.js';
 import { RequestLogger } from '../../utils/logger.js';
 import { MAX_MEMORY_SIZE_BYTES, UserMemoryStore } from '../memory/index.js';
+import {
+  callMCPTool,
+  catalogToolsToAnthropicTools,
+  findTool,
+  getMcpServers,
+  setMcpServers as setBaruchMcpServersKV,
+  ToolCatalog,
+} from '../mcp/index.js';
+import { createHealthTracker, HealthTracker, isServerHealthy } from '../mcp/health.js';
 import { buildSystemPrompt, historyToMessages } from './system-prompt.js';
 import {
   ADMIN_ONLY_TOOLS,
@@ -55,6 +64,7 @@ export interface OrchestratorOptions {
   resolvedPromptValues?: Required<Record<PromptSlot, string>>;
   memoryStore?: UserMemoryStore | undefined;
   memoryTOC?: string | undefined;
+  mcpCatalog?: ToolCatalog | undefined;
   logger: RequestLogger;
   callbacks?: StreamCallbacks | undefined;
 }
@@ -80,6 +90,9 @@ interface OrchestrationContext {
   logger: RequestLogger;
   callbacks?: StreamCallbacks | undefined;
   memoryStore: UserMemoryStore | undefined;
+  env: Env;
+  mcpCatalog: ToolCatalog | undefined;
+  healthTracker: HealthTracker;
 }
 
 function extractToolCalls(content: Anthropic.ContentBlock[]): ToolUseBlock[] {
@@ -189,6 +202,7 @@ function createOrchestrationContext(
 ): OrchestrationContext {
   const { env, org, history, preferences, logger, callbacks } = options;
   const promptValues = options.resolvedPromptValues ?? DEFAULT_PROMPT_VALUES;
+  const mcpCatalog = options.mcpCatalog;
 
   const model = env.CLAUDE_MODEL ?? DEFAULT_MODEL;
   const maxTokens = parseIntEnvVar(
@@ -204,6 +218,11 @@ function createOrchestrationContext(
     logger,
   });
 
+  // Merge built-in tools with MCP tools
+  const builtinTools = buildTools(options.isAdmin ?? false);
+  const mcpTools = mcpCatalog ? catalogToolsToAnthropicTools(mcpCatalog) : [];
+  const allTools = [...builtinTools, ...mcpTools];
+
   return {
     client: new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }),
     model,
@@ -211,8 +230,9 @@ function createOrchestrationContext(
     systemPrompt: buildSystemPrompt(preferences, history, promptValues, {
       memoryTOC: options.memoryTOC,
       isAdmin: options.isAdmin,
+      mcpCatalog,
     }),
-    tools: buildTools(options.isAdmin ?? false),
+    tools: allTools,
     messages: [...historyToMessages(history, 5), { role: 'user', content: userMessage }],
     responses: [],
     adminClient,
@@ -221,6 +241,9 @@ function createOrchestrationContext(
     logger,
     callbacks,
     memoryStore: options.memoryStore,
+    env,
+    mcpCatalog,
+    healthTracker: createHealthTracker(),
   };
 }
 
@@ -321,7 +344,63 @@ async function dispatchToolCall(
   if (name === 'read_memory') return handleReadMemory(input, ctx);
   if (name === 'update_memory') return handleUpdateMemory(input, ctx);
 
+  // Check if this is an MCP tool
+  if (ctx.mcpCatalog) {
+    const mcpTool = findTool(ctx.mcpCatalog, name);
+    if (mcpTool) {
+      return handleMcpToolCall(name, input, mcpTool.serverId, ctx);
+    }
+  }
+
+  // Check Baruch's own MCP server admin tools
+  if (name === 'get_baruch_mcp_servers') return handleGetBaruchMcpServers(ctx);
+  if (name === 'set_baruch_mcp_servers') return handleSetBaruchMcpServers(input, ctx);
+
   return dispatchAdminTool(name, input, ctx);
+}
+
+async function handleMcpToolCall(
+  toolName: string,
+  input: unknown,
+  serverId: string,
+  ctx: OrchestrationContext
+): Promise<unknown> {
+  if (!isServerHealthy(ctx.healthTracker, serverId)) {
+    ctx.logger.warn('mcp_tool_call_skipped_unhealthy', {
+      tool_name: toolName,
+      server_id: serverId,
+    });
+    return { error: `MCP server "${serverId}" is currently unhealthy. Please try again later.` };
+  }
+
+  const server = ctx.mcpCatalog!.serverMap.get(serverId);
+  if (!server) {
+    throw new MCPError(`MCP server "${serverId}" not found in catalog`, serverId);
+  }
+
+  const result = await callMCPTool(server, toolName, input, ctx.logger, {
+    healthTracker: ctx.healthTracker,
+  });
+  return result.result;
+}
+
+async function handleGetBaruchMcpServers(ctx: OrchestrationContext): Promise<unknown> {
+  const servers = await getMcpServers(ctx.env.PROMPT_OVERRIDES);
+  return { servers };
+}
+
+async function handleSetBaruchMcpServers(
+  input: unknown,
+  ctx: OrchestrationContext
+): Promise<unknown> {
+  if (!isAdminToolInput(input) || !Array.isArray((input as Record<string, unknown>).servers)) {
+    throw new ValidationError(
+      'Invalid input for set_baruch_mcp_servers: expected { servers: MCPServerConfig[] }'
+    );
+  }
+  const servers = (input as { servers: unknown[] }).servers;
+  await setBaruchMcpServersKV(ctx.env.PROMPT_OVERRIDES, servers as never[]);
+  return { success: true, server_count: servers.length };
 }
 
 type AdminToolHandler = (

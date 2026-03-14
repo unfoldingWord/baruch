@@ -229,14 +229,14 @@ describe('orchestrate role-based tool filtering', () => {
     const toolNames = tools.map((t: { name: string }) => t.name);
     expect(toolNames).not.toContain('set_prompt_overrides');
     expect(toolNames).not.toContain('set_mcp_servers');
-    expect(toolNames).toHaveLength(8);
+    expect(toolNames).toHaveLength(9);
   });
 
   it('includes all tools when isAdmin is true', async () => {
     mockCreate.mockResolvedValue(textResponse('Hi'));
     await orchestrate('test', buildOptions({ isAdmin: true }));
     const tools = mockCreate.mock.calls[0][0].tools;
-    expect(tools).toHaveLength(10);
+    expect(tools).toHaveLength(12);
   });
 
   it('rejects admin-only tool at dispatch layer for non-admins', async () => {

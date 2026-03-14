@@ -60,3 +60,27 @@ export class TimeoutError extends AppError {
     this.name = 'TimeoutError';
   }
 }
+
+export class MCPError extends AppError {
+  constructor(
+    message: string,
+    public readonly serverId: string
+  ) {
+    super(message, 'MCP_ERROR', 502);
+    this.name = 'MCPError';
+  }
+}
+
+export class MCPResponseTooLargeError extends MCPError {
+  constructor(
+    public readonly actualSize: number,
+    public readonly maxSize: number,
+    serverId: string
+  ) {
+    super(
+      `MCP response too large: ${actualSize} bytes exceeds limit of ${maxSize} bytes`,
+      serverId
+    );
+    this.name = 'MCPResponseTooLargeError';
+  }
+}
