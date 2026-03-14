@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Baruch is a Cloudflare Worker that powers an AI configuration assistant. Instead of manually editing prompt overrides, modes, and MCP servers through the admin portal, admins chat with Baruch, who calls bt-servant-worker's admin API endpoints under the hood.
+Baruch is a Cloudflare Worker that powers an AI configuration assistant and knowledge base guide. Admins chat with Baruch to configure bt-servant-worker (prompt overrides, modes, MCP servers) via admin API tools. Baruch also uses MCP tools directly to help users access connected knowledge bases.
 
 ## Architecture
 
@@ -53,23 +53,34 @@ Baruch is a Cloudflare Worker that powers an AI configuration assistant. Instead
 
 ### Prompt System
 
-Baruch has 4 admin-configurable prompt slots:
+Baruch has 5 admin-configurable prompt slots:
 
 - `identity` — Who Baruch is
-- `methodology` — How Baruch guides configuration
-- `tool_guidance` — How Baruch uses admin API tools
+- `methodology` — How Baruch guides configuration and KB interaction
+- `tool_guidance` — How Baruch uses its tools
+- `mcp_tool_guidance` — How Baruch uses MCP tools and connected knowledge bases
 - `instructions` — Behavioral rules and constraints
 
 Single-tier override: admin KV overrides → hardcoded defaults (no user/mode hierarchy).
 
-### Admin API Tools (10 total)
+### Built-in Tools (14 total)
 
-Baruch calls bt-servant-worker's admin API via `ENGINE_API_KEY`:
+**BT Servant admin API tools** (8) — calls bt-servant-worker via `ENGINE_API_KEY`:
 
 - Prompt overrides: get, set
 - Modes: list, get, create/update, delete
 - MCP servers: list, set
-- Memory: read, update (internal DO)
+
+**Baruch self-config tools** (4) — reads/writes Baruch's own KV:
+
+- Baruch prompt overrides: get, set
+- Baruch MCP servers: get, set
+
+**Memory tools** (2) — internal DO storage:
+
+- Memory: read, update
+
+**MCP tools** (dynamic) — discovered at chat time from configured MCP servers, exposed directly as Claude tools.
 
 ### Environments
 

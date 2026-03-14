@@ -91,7 +91,9 @@ describe('discoverServerTools filtering and auth', () => {
     const init = fetchCall[1] as RequestInit;
     expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer secret-token');
   });
+});
 
+describe('discoverServerTools SSE transport', () => {
   it('handles SSE-wrapped JSON-RPC responses', async () => {
     const payload = JSON.stringify({
       jsonrpc: '2.0',
@@ -108,6 +110,25 @@ describe('discoverServerTools filtering and auth', () => {
     const manifest = await discoverServerTools(makeServer(), mockLogger);
     expect(manifest.tools).toHaveLength(1);
     expect(manifest.tools[0]!.name).toBe('search');
+  });
+
+  it('handles multi-event SSE by using the last event', async () => {
+    const progress = JSON.stringify({ jsonrpc: '2.0', result: { status: 'loading' }, id: 1 });
+    const result = JSON.stringify({
+      jsonrpc: '2.0',
+      result: {
+        tools: [{ name: 'fetch', description: 'Fetch', inputSchema: { type: 'object' } }],
+      },
+      id: 1,
+    });
+    const sseBody = `event: progress\ndata: ${progress}\n\nevent: message\ndata: ${result}\n\n`;
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(sseBody, { headers: { 'content-type': 'text/event-stream' } })
+    );
+
+    const manifest = await discoverServerTools(makeServer(), mockLogger);
+    expect(manifest.tools).toHaveLength(1);
+    expect(manifest.tools[0]!.name).toBe('fetch');
   });
 });
 

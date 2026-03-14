@@ -125,14 +125,18 @@ async function readResponseWithSizeLimit(
  * Extract JSON payload from SSE-formatted responses.
  * MCP Streamable HTTP transport may return `text/event-stream` with
  * `event: message\ndata: {...}` wrapping around the JSON-RPC response.
+ * If multiple events exist, uses the last one (the final result).
  */
 function extractJsonFromSSE(text: string, contentType: string | null): string {
   const isSSE = contentType?.includes('text/event-stream');
   if (!isSSE && text.trimStart().startsWith('{')) return text;
 
-  // Extract all data: lines and concatenate (handles multi-line data)
+  // Split into events (separated by double newlines), take the last one
+  const events = text.split('\n\n').filter((e) => e.trim());
+  const lastEvent = events.length > 0 ? events[events.length - 1]! : text;
+
   const dataLines: string[] = [];
-  for (const line of text.split('\n')) {
+  for (const line of lastEvent.split('\n')) {
     if (line.startsWith('data: ')) {
       dataLines.push(line.slice(6));
     }
