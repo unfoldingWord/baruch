@@ -1,14 +1,14 @@
 /**
  * System prompt builder for Baruch
  *
- * Simpler than bt-servant-worker: no MCP catalog, no mode context.
- * Assembly: [identity] → [methodology] → [tool_guidance] → [instructions] →
- *           [memory_instructions + TOC] → [user preferences] → [conversation context] →
- *           [first interaction]
+ * Assembly: [identity] → [methodology] → [tool_guidance] → [mcp_tool_guidance + catalog] →
+ *           [instructions] → [memory_instructions + TOC] → [user preferences] →
+ *           [conversation context] → [first interaction]
  */
 
 import { ChatHistoryEntry } from '../../types/engine.js';
 import { PromptSlot } from '../../types/prompt-overrides.js';
+import { ToolCatalog } from '../mcp/types.js';
 
 /** Synthetic trigger injected as the user turn for AI-initiated history entries. */
 export const SYNTHETIC_CONVERSATION_TRIGGER = 'Begin the conversation.';
@@ -21,6 +21,7 @@ export interface OrchestrationPreferences {
 interface SystemPromptOptions {
   memoryTOC?: string | undefined;
   isAdmin?: boolean | undefined;
+  mcpCatalog?: ToolCatalog | undefined;
 }
 
 const MEMORY_INSTRUCTIONS = `## User Memory
@@ -38,12 +39,20 @@ export function buildSystemPrompt(
   resolvedPromptValues: Required<Record<PromptSlot, string>>,
   options?: SystemPromptOptions
 ): string {
-  const { memoryTOC, isAdmin } = options ?? {};
+  const { memoryTOC, isAdmin, mcpCatalog } = options ?? {};
   const sections: string[] = [];
 
   sections.push(resolvedPromptValues.identity);
   sections.push(resolvedPromptValues.methodology);
   sections.push(resolvedPromptValues.tool_guidance);
+
+  if (mcpCatalog && mcpCatalog.tools.length > 0) {
+    let mcpSection = resolvedPromptValues.mcp_tool_guidance;
+    const toolList = mcpCatalog.tools.map((t) => `- **${t.name}**: ${t.description}`).join('\n');
+    mcpSection += `\n\n### Available MCP Tools\n\n${toolList}`;
+    sections.push(mcpSection);
+  }
+
   sections.push(resolvedPromptValues.instructions);
 
   if (isAdmin === false) {

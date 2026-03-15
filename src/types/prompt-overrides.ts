@@ -1,7 +1,7 @@
 /**
  * Prompt override types and utilities for Baruch
  *
- * Baruch has 4 admin-configurable prompt slots.
+ * Baruch has 5 admin-configurable prompt slots.
  * Single-tier override: admin KV → hardcoded default (no user/mode hierarchy).
  */
 
@@ -10,6 +10,7 @@ export const PROMPT_OVERRIDE_SLOTS = [
   'identity',
   'methodology',
   'tool_guidance',
+  'mcp_tool_guidance',
   'instructions',
 ] as const;
 
@@ -28,6 +29,7 @@ export interface PromptOverrides {
   identity?: string | null;
   methodology?: string | null;
   tool_guidance?: string | null;
+  mcp_tool_guidance?: string | null;
   instructions?: string | null;
 }
 
@@ -85,6 +87,12 @@ You have tools to manage BT Servant's configuration via the admin API:
 
 ### Memory
 - Use \`read_memory\` and \`update_memory\` to track configuration context across conversations`,
+
+  mcp_tool_guidance: `## MCP Tools
+
+You have access to external MCP (Model Context Protocol) tools provided by configured servers. These tools extend your capabilities beyond the built-in admin tools.
+
+When a user's request could be served by an MCP tool, use it. MCP tools are called directly — just invoke them like any other tool. If a tool call fails, report the error clearly and suggest alternatives.`,
 
   instructions: `## Important Rules
 

@@ -26,6 +26,7 @@ describe('applyTemplateVariables', () => {
       identity: 'Baruch v{{version}}',
       methodology: 'method',
       tool_guidance: 'tools',
+      mcp_tool_guidance: 'mcp tools',
       instructions: 'rules',
     };
     const result = applyTemplateVariables(resolved);
@@ -39,6 +40,7 @@ describe('applyTemplateVariables', () => {
       identity: '{{version}}',
       methodology: 'method',
       tool_guidance: 'tools',
+      mcp_tool_guidance: 'mcp tools',
       instructions: 'rules',
     };
     const original = { ...resolved };

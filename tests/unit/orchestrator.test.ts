@@ -229,14 +229,14 @@ describe('orchestrate role-based tool filtering', () => {
     const toolNames = tools.map((t: { name: string }) => t.name);
     expect(toolNames).not.toContain('set_prompt_overrides');
     expect(toolNames).not.toContain('set_mcp_servers');
-    expect(toolNames).toHaveLength(8);
+    expect(toolNames).toHaveLength(10);
   });
 
   it('includes all tools when isAdmin is true', async () => {
     mockCreate.mockResolvedValue(textResponse('Hi'));
     await orchestrate('test', buildOptions({ isAdmin: true }));
     const tools = mockCreate.mock.calls[0][0].tools;
-    expect(tools).toHaveLength(10);
+    expect(tools).toHaveLength(14);
   });
 
   it('rejects admin-only tool at dispatch layer for non-admins', async () => {
@@ -327,5 +327,54 @@ describe('orchestrate serialized tool execution', () => {
 
     await orchestrate('test', buildOptions());
     expect(callOrder).toEqual([1, 2]);
+  });
+});
+
+describe('orchestrate MCP tool dispatch', () => {
+  it('dispatches MCP tool calls to the MCP server', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          result: { content: [{ type: 'text', text: 'MCP result' }] },
+          id: 1,
+        })
+      )
+    );
+
+    const mcpCatalog = {
+      tools: [
+        {
+          name: 'mcp_search',
+          description: 'Search',
+          inputSchema: { type: 'object', properties: {} },
+          serverId: 's1',
+          serverUrl: 'https://mcp.test',
+        },
+      ],
+      serverMap: new Map([
+        ['s1', { id: 's1', name: 'Test', url: 'https://mcp.test', enabled: true, priority: 1 }],
+      ]),
+    };
+
+    mockCreate
+      .mockResolvedValueOnce(toolUseResponse('mcp_search', { q: 'hello' }))
+      .mockResolvedValueOnce(textResponse('Found it'));
+
+    const result = await orchestrate('search', buildOptions({ mcpCatalog }));
+    expect(result).toEqual(['Found it']);
+  });
+
+  it('rejects set_baruch_mcp_servers for non-admins', async () => {
+    mockCreate
+      .mockResolvedValueOnce(toolUseResponse('set_baruch_mcp_servers', { servers: [] }))
+      .mockResolvedValueOnce(textResponse('Denied'));
+
+    const result = await orchestrate('test', buildOptions({ isAdmin: false }));
+    expect(result).toEqual(['Denied']);
+    const msgs = mockCreate.mock.calls[1][0].messages;
+    const toolResult = msgs[msgs.length - 1];
+    expect(toolResult.content[0].is_error).toBe(true);
+    expect(toolResult.content[0].content).toContain('requires admin privileges');
   });
 });

@@ -11,8 +11,8 @@ import {
 } from '../../src/services/claude/tools.js';
 
 describe('buildAllTools', () => {
-  it('returns exactly 10 tools', () => {
-    expect(buildAllTools()).toHaveLength(10);
+  it('returns exactly 14 tools', () => {
+    expect(buildAllTools()).toHaveLength(14);
   });
 
   it('all tools have required fields', () => {
@@ -34,20 +34,24 @@ describe('buildAllTools', () => {
     expect(names).toContain('delete_mode');
     expect(names).toContain('list_mcp_servers');
     expect(names).toContain('set_mcp_servers');
+    expect(names).toContain('get_baruch_prompt_overrides');
+    expect(names).toContain('set_baruch_prompt_overrides');
+    expect(names).toContain('get_baruch_mcp_servers');
+    expect(names).toContain('set_baruch_mcp_servers');
     expect(names).toContain('read_memory');
     expect(names).toContain('update_memory');
   });
 });
 
 describe('buildTools role filtering', () => {
-  it('returns all 10 tools for admins', () => {
+  it('returns all 14 tools for admins', () => {
     const tools = buildTools(true);
-    expect(tools).toHaveLength(10);
+    expect(tools).toHaveLength(14);
   });
 
-  it('returns 8 tools for non-admins', () => {
+  it('returns 10 tools for non-admins', () => {
     const tools = buildTools(false);
-    expect(tools).toHaveLength(8);
+    expect(tools).toHaveLength(10);
   });
 
   it('excludes set_prompt_overrides for non-admins', () => {
@@ -72,10 +76,34 @@ describe('buildTools role filtering', () => {
     expect(names).toContain('update_memory');
   });
 
-  it('ADMIN_ONLY_TOOLS contains exactly 2 tools', () => {
-    expect(ADMIN_ONLY_TOOLS.size).toBe(2);
+  it('ADMIN_ONLY_TOOLS contains exactly 4 tools', () => {
+    expect(ADMIN_ONLY_TOOLS.size).toBe(4);
     expect(ADMIN_ONLY_TOOLS.has('set_prompt_overrides')).toBe(true);
     expect(ADMIN_ONLY_TOOLS.has('set_mcp_servers')).toBe(true);
+    expect(ADMIN_ONLY_TOOLS.has('set_baruch_prompt_overrides')).toBe(true);
+    expect(ADMIN_ONLY_TOOLS.has('set_baruch_mcp_servers')).toBe(true);
+  });
+});
+
+describe('buildTools Baruch self-config filtering', () => {
+  it('excludes set_baruch_mcp_servers for non-admins', () => {
+    const names = buildTools(false).map((t) => t.name);
+    expect(names).not.toContain('set_baruch_mcp_servers');
+  });
+
+  it('includes get_baruch_mcp_servers for non-admins', () => {
+    const names = buildTools(false).map((t) => t.name);
+    expect(names).toContain('get_baruch_mcp_servers');
+  });
+
+  it('excludes set_baruch_prompt_overrides for non-admins', () => {
+    const names = buildTools(false).map((t) => t.name);
+    expect(names).not.toContain('set_baruch_prompt_overrides');
+  });
+
+  it('includes get_baruch_prompt_overrides for non-admins', () => {
+    const names = buildTools(false).map((t) => t.name);
+    expect(names).toContain('get_baruch_prompt_overrides');
   });
 });
 
@@ -155,6 +183,7 @@ describe('buildSetPromptOverridesTool schema', () => {
     expect(props).toHaveProperty('identity');
     expect(props).toHaveProperty('methodology');
     expect(props).toHaveProperty('tool_guidance');
+    expect(props).toHaveProperty('mcp_tool_guidance');
     expect(props).toHaveProperty('instructions');
     expect(props).not.toHaveProperty('overrides');
   });
