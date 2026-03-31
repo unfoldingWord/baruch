@@ -378,7 +378,7 @@ describe('orchestrate Baruch MCP tools use session org', () => {
       .mockResolvedValueOnce(textResponse('Done'));
 
     await orchestrate('show mcp', buildOptions({ env, org: 'customOrg', isAdmin: true }));
-    expect(mockGet).toHaveBeenCalledWith('customOrg:mcp_servers', 'json');
+    expect(mockGet).toHaveBeenCalledWith('mcp:customOrg', 'json');
   });
 
   it('set_baruch_mcp_servers writes to session org, not DEFAULT_ORG', async () => {
@@ -396,9 +396,9 @@ describe('orchestrate Baruch MCP tools use session org', () => {
       .mockResolvedValueOnce(textResponse('Done'));
 
     await orchestrate('set mcp', buildOptions({ env, org: 'customOrg', isAdmin: true }));
-    expect(mockPut).toHaveBeenCalledWith('customOrg:mcp_servers', expect.any(String));
+    expect(mockPut).toHaveBeenCalledWith('mcp:customOrg', expect.any(String));
     const putKeys = mockPut.mock.calls.map((c: unknown[]) => c[0]);
-    expect(putKeys).not.toContain('defaultOrg:mcp_servers');
+    expect(putKeys).not.toContain('mcp:defaultOrg');
   });
 });
 

@@ -10,7 +10,7 @@ import { MCPServerConfig } from './types.js';
 
 /** Build the org-scoped KV key for Baruch's MCP server configuration */
 function mcpServersKey(org: string): string {
-  return `${org}:mcp_servers`;
+  return `mcp:${org}`;
 }
 
 /**
