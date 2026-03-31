@@ -19,6 +19,18 @@ describe('resolveOrgFromBody', () => {
   it('returns default when neither is provided', () => {
     expect(resolveOrgFromBody({}, defaultOrg)).toBe('default-org');
   });
+
+  it('falls back to default when org is empty string', () => {
+    expect(resolveOrgFromBody({ org: '' }, defaultOrg)).toBe('default-org');
+  });
+
+  it('falls back to org_id when org is empty string', () => {
+    expect(resolveOrgFromBody({ org: '', org_id: 'id-org' }, defaultOrg)).toBe('id-org');
+  });
+
+  it('falls back to default when both are empty strings', () => {
+    expect(resolveOrgFromBody({ org: '', org_id: '' }, defaultOrg)).toBe('default-org');
+  });
 });
 
 describe('resolveOrgFromParams', () => {
@@ -41,6 +53,11 @@ describe('resolveOrgFromParams', () => {
 
   it('returns default when no params set', () => {
     const params = new URLSearchParams();
+    expect(resolveOrgFromParams(params, defaultOrg)).toBe('default-org');
+  });
+
+  it('falls back to default when org param is empty string', () => {
+    const params = new URLSearchParams('org=');
     expect(resolveOrgFromParams(params, defaultOrg)).toBe('default-org');
   });
 });

@@ -411,7 +411,7 @@ async function handleMcpToolCall(
 }
 
 async function handleGetBaruchPromptOverrides(ctx: OrchestrationContext): Promise<unknown> {
-  const org = ctx.env.DEFAULT_ORG;
+  const org = ctx.org;
   const raw = (await ctx.env.PROMPT_OVERRIDES.get<PromptOverrides>(org, 'json')) ?? {};
   const resolved = resolvePromptOverrides(raw);
   return { overrides: raw, resolved };
@@ -426,7 +426,7 @@ async function handleSetBaruchPromptOverrides(
       `Invalid input for set_baruch_prompt_overrides: expected valid prompt slots. Got ${truncateInput(input)}`
     );
   }
-  const org = ctx.env.DEFAULT_ORG;
+  const org = ctx.org;
   const existing = (await ctx.env.PROMPT_OVERRIDES.get<PromptOverrides>(org, 'json')) ?? {};
   const merged = mergePromptOverrides(existing, input as PromptOverrides);
   const error = validatePromptOverrides(merged);
@@ -436,7 +436,7 @@ async function handleSetBaruchPromptOverrides(
 }
 
 async function handleGetBaruchMcpServers(ctx: OrchestrationContext): Promise<unknown> {
-  const servers = await getMcpServers(ctx.env.PROMPT_OVERRIDES);
+  const servers = await getMcpServers(ctx.env.PROMPT_OVERRIDES, ctx.org);
   return { servers };
 }
 
@@ -466,7 +466,7 @@ async function handleSetBaruchMcpServers(
     const error = validateMcpServerEntry(servers[i], i);
     if (error) throw new ValidationError(`Invalid MCP server config: ${error}`);
   }
-  await setBaruchMcpServersKV(ctx.env.PROMPT_OVERRIDES, servers as MCPServerConfig[]);
+  await setBaruchMcpServersKV(ctx.env.PROMPT_OVERRIDES, ctx.org, servers as MCPServerConfig[]);
   return { success: true, server_count: servers.length };
 }
 

@@ -300,11 +300,11 @@ export class UserSession {
     });
   }
 
-  private async loadOrchestrationContext(logger: RequestLogger) {
+  private async loadOrchestrationContext(org: string, logger: RequestLogger) {
     const [resolvedPromptValues, memoryCtx, mcpCatalog] = await Promise.all([
-      this.resolvePrompts(logger),
+      this.resolvePrompts(org, logger),
       this.loadMemoryContext(logger),
-      this.discoverMcpTools(logger),
+      this.discoverMcpTools(org, logger),
     ]);
     return { resolvedPromptValues, ...memoryCtx, mcpCatalog };
   }
@@ -316,7 +316,7 @@ export class UserSession {
     logger: RequestLogger
   ): Promise<void> {
     const org = resolveOrgFromBody(body, this.env.DEFAULT_ORG);
-    const ctx = await this.loadOrchestrationContext(logger);
+    const ctx = await this.loadOrchestrationContext(org, logger);
 
     const callbacks: StreamCallbacks = {
       onStatus: async (message) => sendEvent({ type: 'status', message }),
@@ -500,12 +500,11 @@ export class UserSession {
     }
   }
 
-  private async resolvePrompts(logger: RequestLogger) {
+  private async resolvePrompts(org: string, logger: RequestLogger) {
     const startTime = Date.now();
     // Read admin overrides from KV
     let adminOverrides: PromptOverrides = {};
     try {
-      const org = this.env.DEFAULT_ORG;
       adminOverrides = (await this.env.PROMPT_OVERRIDES.get<PromptOverrides>(org, 'json')) ?? {};
     } catch (error) {
       logger.error('prompt_overrides_kv_read_error', error);
@@ -565,9 +564,12 @@ export class UserSession {
     logger.log('phase_save_complete', { duration_ms: Date.now() - startTime });
   }
 
-  private async discoverMcpTools(logger: RequestLogger): Promise<ToolCatalog | undefined> {
+  private async discoverMcpTools(
+    org: string,
+    logger: RequestLogger
+  ): Promise<ToolCatalog | undefined> {
     try {
-      const servers = await getMcpServers(this.env.PROMPT_OVERRIDES);
+      const servers = await getMcpServers(this.env.PROMPT_OVERRIDES, org);
       const enabled = servers.filter((s) => s.enabled).sort((a, b) => a.priority - b.priority);
 
       if (enabled.length === 0) return undefined;
@@ -592,7 +594,7 @@ export class UserSession {
 
     const org = resolveOrgFromBody(body, this.env.DEFAULT_ORG);
     const { preferences, history } = await this.loadUserContext(logger);
-    const ctx = await this.loadOrchestrationContext(logger);
+    const ctx = await this.loadOrchestrationContext(org, logger);
 
     const startTime = Date.now();
     const responses = await orchestrate(body.message, {

@@ -330,6 +330,78 @@ describe('orchestrate serialized tool execution', () => {
   });
 });
 
+describe('orchestrate Baruch prompt tools use session org', () => {
+  it('get_baruch_prompt_overrides reads from session org, not DEFAULT_ORG', async () => {
+    const mockGet = vi.fn().mockResolvedValue({ identity: 'custom' });
+    const env = buildEnv();
+    env.DEFAULT_ORG = 'defaultOrg';
+    env.PROMPT_OVERRIDES = { get: mockGet, put: vi.fn() } as unknown as KVNamespace;
+
+    mockCreate
+      .mockResolvedValueOnce(toolUseResponse('get_baruch_prompt_overrides', {}))
+      .mockResolvedValueOnce(textResponse('Done'));
+
+    await orchestrate('show config', buildOptions({ env, org: 'customOrg', isAdmin: true }));
+    expect(mockGet).toHaveBeenCalledWith('customOrg', 'json');
+    expect(mockGet).not.toHaveBeenCalledWith('defaultOrg', 'json');
+  });
+
+  it('set_baruch_prompt_overrides writes to session org, not DEFAULT_ORG', async () => {
+    const mockGet = vi.fn().mockResolvedValue(null);
+    const mockPut = vi.fn();
+    const env = buildEnv();
+    env.DEFAULT_ORG = 'defaultOrg';
+    env.PROMPT_OVERRIDES = { get: mockGet, put: mockPut } as unknown as KVNamespace;
+
+    mockCreate
+      .mockResolvedValueOnce(
+        toolUseResponse('set_baruch_prompt_overrides', { identity: 'new identity' })
+      )
+      .mockResolvedValueOnce(textResponse('Done'));
+
+    await orchestrate('set identity', buildOptions({ env, org: 'customOrg', isAdmin: true }));
+    expect(mockPut).toHaveBeenCalledWith('customOrg', expect.any(String));
+    const putArgs = mockPut.mock.calls.map((c: unknown[]) => c[0]);
+    expect(putArgs).not.toContain('defaultOrg');
+  });
+});
+
+describe('orchestrate Baruch MCP tools use session org', () => {
+  it('get_baruch_mcp_servers reads from session org, not DEFAULT_ORG', async () => {
+    const mockGet = vi.fn().mockResolvedValue(null);
+    const env = buildEnv();
+    env.DEFAULT_ORG = 'defaultOrg';
+    env.PROMPT_OVERRIDES = { get: mockGet, put: vi.fn() } as unknown as KVNamespace;
+
+    mockCreate
+      .mockResolvedValueOnce(toolUseResponse('get_baruch_mcp_servers', {}))
+      .mockResolvedValueOnce(textResponse('Done'));
+
+    await orchestrate('show mcp', buildOptions({ env, org: 'customOrg', isAdmin: true }));
+    expect(mockGet).toHaveBeenCalledWith('mcp:customOrg', 'json');
+  });
+
+  it('set_baruch_mcp_servers writes to session org, not DEFAULT_ORG', async () => {
+    const mockPut = vi.fn();
+    const env = buildEnv();
+    env.DEFAULT_ORG = 'defaultOrg';
+    env.PROMPT_OVERRIDES = {
+      get: vi.fn().mockResolvedValue(null),
+      put: mockPut,
+    } as unknown as KVNamespace;
+
+    const servers = [{ id: 's1', name: 'S1', url: 'https://mcp.test', enabled: true, priority: 1 }];
+    mockCreate
+      .mockResolvedValueOnce(toolUseResponse('set_baruch_mcp_servers', { servers }))
+      .mockResolvedValueOnce(textResponse('Done'));
+
+    await orchestrate('set mcp', buildOptions({ env, org: 'customOrg', isAdmin: true }));
+    expect(mockPut).toHaveBeenCalledWith('mcp:customOrg', expect.any(String));
+    const putKeys = mockPut.mock.calls.map((c: unknown[]) => c[0]);
+    expect(putKeys).not.toContain('mcp:defaultOrg');
+  });
+});
+
 describe('orchestrate MCP tool dispatch', () => {
   it('dispatches MCP tool calls to the MCP server', async () => {
     vi.mocked(fetch).mockResolvedValue(
