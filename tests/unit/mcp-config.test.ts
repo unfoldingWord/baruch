@@ -15,7 +15,7 @@ describe('getMcpServers', () => {
   it('returns empty array when key does not exist', async () => {
     const kv = mockKV();
     vi.mocked(kv.get).mockResolvedValue(null);
-    const servers = await getMcpServers(kv);
+    const servers = await getMcpServers(kv, 'testOrg');
     expect(servers).toEqual([]);
   });
 
@@ -25,31 +25,48 @@ describe('getMcpServers', () => {
       { id: 's1', name: 'Server 1', url: 'https://mcp.test', enabled: true, priority: 1 },
     ];
     vi.mocked(kv.get).mockResolvedValue(stored);
-    const servers = await getMcpServers(kv);
+    const servers = await getMcpServers(kv, 'testOrg');
     expect(servers).toEqual(stored);
   });
 
-  it('reads from the correct KV key', async () => {
+  it('reads from the org-scoped KV key', async () => {
     const kv = mockKV();
     vi.mocked(kv.get).mockResolvedValue(null);
-    await getMcpServers(kv);
-    expect(kv.get).toHaveBeenCalledWith('_baruch_mcp_servers', 'json');
+    await getMcpServers(kv, 'testOrg');
+    expect(kv.get).toHaveBeenCalledWith('testOrg:mcp_servers', 'json');
+  });
+
+  it('uses different keys for different orgs', async () => {
+    const kv = mockKV();
+    vi.mocked(kv.get).mockResolvedValue(null);
+    await getMcpServers(kv, 'orgA');
+    await getMcpServers(kv, 'orgB');
+    expect(kv.get).toHaveBeenCalledWith('orgA:mcp_servers', 'json');
+    expect(kv.get).toHaveBeenCalledWith('orgB:mcp_servers', 'json');
   });
 });
 
 describe('setMcpServers', () => {
-  it('writes servers to KV', async () => {
+  it('writes servers to the org-scoped KV key', async () => {
     const kv = mockKV();
     const servers = [
       { id: 's1', name: 'Server 1', url: 'https://mcp.test', enabled: true, priority: 1 },
     ];
-    await setMcpServers(kv, servers as never);
-    expect(kv.put).toHaveBeenCalledWith('_baruch_mcp_servers', JSON.stringify(servers));
+    await setMcpServers(kv, 'testOrg', servers as never);
+    expect(kv.put).toHaveBeenCalledWith('testOrg:mcp_servers', JSON.stringify(servers));
   });
 
   it('writes empty array', async () => {
     const kv = mockKV();
-    await setMcpServers(kv, []);
-    expect(kv.put).toHaveBeenCalledWith('_baruch_mcp_servers', '[]');
+    await setMcpServers(kv, 'testOrg', []);
+    expect(kv.put).toHaveBeenCalledWith('testOrg:mcp_servers', '[]');
+  });
+
+  it('uses different keys for different orgs', async () => {
+    const kv = mockKV();
+    await setMcpServers(kv, 'orgA', []);
+    await setMcpServers(kv, 'orgB', []);
+    expect(kv.put).toHaveBeenCalledWith('orgA:mcp_servers', '[]');
+    expect(kv.put).toHaveBeenCalledWith('orgB:mcp_servers', '[]');
   });
 });
