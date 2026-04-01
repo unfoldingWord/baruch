@@ -7,7 +7,7 @@
  * - 2 memory tools (read, update)
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import type Anthropic from '@anthropic-ai/sdk';
 import { PROMPT_OVERRIDE_SLOTS } from '../../types/prompt-overrides.js';
 
 export function buildGetPromptOverridesTool(): Anthropic.Tool {

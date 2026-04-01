@@ -4,23 +4,13 @@ import { DEFAULT_PROMPT_VALUES } from '../../src/types/prompt-overrides.js';
 
 const mockLogger = { log: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 
-// Mock Anthropic SDK
-const mockCreate = vi.fn();
-const mockStream = vi.fn();
-vi.mock('@anthropic-ai/sdk', () => {
-  return {
-    default: class {
-      messages = { create: mockCreate, stream: mockStream };
-      static APIError = class extends Error {
-        status: number;
-        constructor(s: number, m: string) {
-          super(m);
-          this.status = s;
-        }
-      };
-    },
-  };
-});
+// Mock the raw Anthropic client (replaces SDK mock)
+const mockCallClaudeRaw = vi.fn();
+const mockStreamClaudeRaw = vi.fn();
+vi.mock('../../src/services/claude/anthropic-client.js', () => ({
+  callClaudeRaw: (...args: unknown[]) => mockCallClaudeRaw(...args),
+  streamClaudeRaw: (...args: unknown[]) => mockStreamClaudeRaw(...args),
+}));
 
 // Mock fetch for admin API calls
 vi.stubGlobal('fetch', vi.fn());
@@ -82,13 +72,13 @@ beforeEach(() => {
 
 describe('orchestrate basic flow', () => {
   it('returns text response from Claude', async () => {
-    mockCreate.mockResolvedValue(textResponse('Hello!'));
+    mockCallClaudeRaw.mockResolvedValue(textResponse('Hello!'));
     const result = await orchestrate('Hi', buildOptions());
     expect(result).toEqual(['Hello!']);
   });
 
   it('skips empty text blocks', async () => {
-    mockCreate.mockResolvedValue({
+    mockCallClaudeRaw.mockResolvedValue({
       ...textResponse('Result'),
       content: [
         { type: 'text', text: '  ' },
@@ -100,8 +90,8 @@ describe('orchestrate basic flow', () => {
   });
 
   it('calls onStatus callback', async () => {
-    mockStream.mockReturnValue({
-      on: vi.fn().mockReturnThis(),
+    mockStreamClaudeRaw.mockReturnValue({
+      onText: vi.fn(),
       finalMessage: vi.fn().mockResolvedValue(textResponse('Done')),
     });
     const onStatus = vi.fn();
@@ -115,7 +105,7 @@ describe('orchestrate tool dispatch', () => {
   it('dispatches get_prompt_overrides to admin API', async () => {
     const apiResponse = { overrides: {}, resolved: {} };
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify(apiResponse)));
-    mockCreate
+    mockCallClaudeRaw
       .mockResolvedValueOnce(toolUseResponse('get_prompt_overrides', {}))
       .mockResolvedValueOnce(textResponse('Here are the overrides'));
 
@@ -129,7 +119,7 @@ describe('orchestrate tool dispatch', () => {
 
   it('uses session org, not tool input org', async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({})));
-    mockCreate
+    mockCallClaudeRaw
       .mockResolvedValueOnce(toolUseResponse('get_prompt_overrides', { org: 'evil-org' }))
       .mockResolvedValueOnce(textResponse('Done'));
 
@@ -142,19 +132,19 @@ describe('orchestrate tool dispatch', () => {
 
 describe('orchestrate error handling', () => {
   it('returns error result for unknown tools', async () => {
-    mockCreate
+    mockCallClaudeRaw
       .mockResolvedValueOnce(toolUseResponse('nonexistent_tool', {}))
       .mockResolvedValueOnce(textResponse('Noted'));
 
     const result = await orchestrate('test', buildOptions());
     expect(result).toEqual(['Noted']);
-    const secondCallMessages = mockCreate.mock.calls[1][0].messages;
-    const toolResult = secondCallMessages[secondCallMessages.length - 1];
-    expect(toolResult.content[0].is_error).toBe(true);
+    const secondCallParams = mockCallClaudeRaw.mock.calls[1][0];
+    const lastMsg = secondCallParams.messages[secondCallParams.messages.length - 1];
+    expect(lastMsg.content[0].is_error).toBe(true);
   });
 
   it('returns error for invalid tool input', async () => {
-    mockCreate
+    mockCallClaudeRaw
       .mockResolvedValueOnce({
         ...toolUseResponse('get_prompt_overrides', {}),
         content: [{ type: 'tool_use', id: 'tu_1', name: 'get_prompt_overrides', input: null }],
@@ -169,7 +159,7 @@ describe('orchestrate error handling', () => {
 describe('orchestrate iteration limit', () => {
   it('appends warning when iteration limit reached', async () => {
     // Always return tool_use to never complete
-    mockCreate.mockResolvedValue(toolUseResponse('list_modes', {}));
+    mockCallClaudeRaw.mockResolvedValue(toolUseResponse('list_modes', {}));
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify([])));
 
     const options = buildOptions();
@@ -187,7 +177,7 @@ describe('orchestrate iteration limit', () => {
 
 describe('orchestrate memory tools', () => {
   it('returns error when memory store not available', async () => {
-    mockCreate
+    mockCallClaudeRaw
       .mockResolvedValueOnce(toolUseResponse('read_memory', {}))
       .mockResolvedValueOnce(textResponse('No memory'));
 
@@ -200,7 +190,7 @@ describe('orchestrate memory tools', () => {
     const mockGetSize = vi.fn().mockResolvedValue(100);
     const memoryStore = { read: mockRead, getSizeBytes: mockGetSize } as never;
 
-    mockCreate
+    mockCallClaudeRaw
       .mockResolvedValueOnce(toolUseResponse('read_memory', {}))
       .mockResolvedValueOnce(textResponse('Got it'));
 
@@ -212,7 +202,7 @@ describe('orchestrate memory tools', () => {
     const mockWrite = vi.fn().mockResolvedValue({ updated: ['topic'] });
     const memoryStore = { writeSections: mockWrite } as never;
 
-    mockCreate
+    mockCallClaudeRaw
       .mockResolvedValueOnce(toolUseResponse('update_memory', { sections: { topic: 'content' } }))
       .mockResolvedValueOnce(textResponse('Saved'));
 
@@ -223,49 +213,49 @@ describe('orchestrate memory tools', () => {
 
 describe('orchestrate role-based tool filtering', () => {
   it('excludes admin-only tools when isAdmin is false', async () => {
-    mockCreate.mockResolvedValue(textResponse('Hi'));
+    mockCallClaudeRaw.mockResolvedValue(textResponse('Hi'));
     await orchestrate('test', buildOptions({ isAdmin: false }));
-    const tools = mockCreate.mock.calls[0][0].tools;
-    const toolNames = tools.map((t: { name: string }) => t.name);
+    const params = mockCallClaudeRaw.mock.calls[0][0];
+    const toolNames = params.tools.map((t: { name: string }) => t.name);
     expect(toolNames).not.toContain('set_prompt_overrides');
     expect(toolNames).not.toContain('set_mcp_servers');
     expect(toolNames).toHaveLength(10);
   });
 
   it('includes all tools when isAdmin is true', async () => {
-    mockCreate.mockResolvedValue(textResponse('Hi'));
+    mockCallClaudeRaw.mockResolvedValue(textResponse('Hi'));
     await orchestrate('test', buildOptions({ isAdmin: true }));
-    const tools = mockCreate.mock.calls[0][0].tools;
-    expect(tools).toHaveLength(14);
+    const params = mockCallClaudeRaw.mock.calls[0][0];
+    expect(params.tools).toHaveLength(14);
   });
 
   it('rejects admin-only tool at dispatch layer for non-admins', async () => {
     // Even if Claude somehow emits set_prompt_overrides, dispatch should reject it
-    mockCreate
+    mockCallClaudeRaw
       .mockResolvedValueOnce(toolUseResponse('set_prompt_overrides', { identity: 'test' }))
       .mockResolvedValueOnce(textResponse('Noted'));
 
     const result = await orchestrate('test', buildOptions({ isAdmin: false }));
     expect(result).toEqual(['Noted']);
     // The tool result should be an error
-    const secondCallMessages = mockCreate.mock.calls[1][0].messages;
-    const toolResult = secondCallMessages[secondCallMessages.length - 1];
-    expect(toolResult.content[0].is_error).toBe(true);
-    expect(toolResult.content[0].content).toContain('requires admin privileges');
+    const secondCallParams = mockCallClaudeRaw.mock.calls[1][0];
+    const lastMsg = secondCallParams.messages[secondCallParams.messages.length - 1];
+    expect(lastMsg.content[0].is_error).toBe(true);
+    expect(lastMsg.content[0].content).toContain('requires admin privileges');
   });
 
   it('includes non-admin prompt section when isAdmin is false', async () => {
-    mockCreate.mockResolvedValue(textResponse('Hi'));
+    mockCallClaudeRaw.mockResolvedValue(textResponse('Hi'));
     await orchestrate('test', buildOptions({ isAdmin: false }));
-    const systemPrompt = mockCreate.mock.calls[0][0].system;
-    expect(systemPrompt).toContain('not an org admin');
+    const params = mockCallClaudeRaw.mock.calls[0][0];
+    expect(params.system).toContain('not an org admin');
   });
 });
 
 describe('orchestrate set_prompt_overrides dispatch', () => {
   it('dispatches valid flat input to admin API for admins', async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ ok: true })));
-    mockCreate
+    mockCallClaudeRaw
       .mockResolvedValueOnce(
         toolUseResponse('set_prompt_overrides', { identity: 'New identity prompt' })
       )
@@ -283,17 +273,17 @@ describe('orchestrate set_prompt_overrides dispatch', () => {
   });
 
   it('returns validation error for invalid input from admin', async () => {
-    mockCreate
+    mockCallClaudeRaw
       .mockResolvedValueOnce(toolUseResponse('set_prompt_overrides', { identity: 123 }))
       .mockResolvedValueOnce(textResponse('I see the error'));
 
     const result = await orchestrate('set identity', buildOptions({ isAdmin: true }));
     expect(result).toEqual(['I see the error']);
 
-    const secondCallMessages = mockCreate.mock.calls[1][0].messages;
-    const toolResult = secondCallMessages[secondCallMessages.length - 1];
-    expect(toolResult.content[0].is_error).toBe(true);
-    expect(toolResult.content[0].content).toContain('Invalid input for set_prompt_overrides');
+    const secondCallParams = mockCallClaudeRaw.mock.calls[1][0];
+    const lastMsg = secondCallParams.messages[secondCallParams.messages.length - 1];
+    expect(lastMsg.content[0].is_error).toBe(true);
+    expect(lastMsg.content[0].content).toContain('Invalid input for set_prompt_overrides');
   });
 });
 
@@ -310,7 +300,7 @@ describe('orchestrate serialized tool execution', () => {
         return new Response(JSON.stringify({}));
       });
 
-    mockCreate
+    mockCallClaudeRaw
       .mockResolvedValueOnce({
         content: [
           { type: 'tool_use', id: 'tu_1', name: 'list_modes', input: {} },
@@ -337,7 +327,7 @@ describe('orchestrate Baruch prompt tools use session org', () => {
     env.DEFAULT_ORG = 'defaultOrg';
     env.PROMPT_OVERRIDES = { get: mockGet, put: vi.fn() } as unknown as KVNamespace;
 
-    mockCreate
+    mockCallClaudeRaw
       .mockResolvedValueOnce(toolUseResponse('get_baruch_prompt_overrides', {}))
       .mockResolvedValueOnce(textResponse('Done'));
 
@@ -353,7 +343,7 @@ describe('orchestrate Baruch prompt tools use session org', () => {
     env.DEFAULT_ORG = 'defaultOrg';
     env.PROMPT_OVERRIDES = { get: mockGet, put: mockPut } as unknown as KVNamespace;
 
-    mockCreate
+    mockCallClaudeRaw
       .mockResolvedValueOnce(
         toolUseResponse('set_baruch_prompt_overrides', { identity: 'new identity' })
       )
@@ -373,7 +363,7 @@ describe('orchestrate Baruch MCP tools use session org', () => {
     env.DEFAULT_ORG = 'defaultOrg';
     env.PROMPT_OVERRIDES = { get: mockGet, put: vi.fn() } as unknown as KVNamespace;
 
-    mockCreate
+    mockCallClaudeRaw
       .mockResolvedValueOnce(toolUseResponse('get_baruch_mcp_servers', {}))
       .mockResolvedValueOnce(textResponse('Done'));
 
@@ -391,7 +381,7 @@ describe('orchestrate Baruch MCP tools use session org', () => {
     } as unknown as KVNamespace;
 
     const servers = [{ id: 's1', name: 'S1', url: 'https://mcp.test', enabled: true, priority: 1 }];
-    mockCreate
+    mockCallClaudeRaw
       .mockResolvedValueOnce(toolUseResponse('set_baruch_mcp_servers', { servers }))
       .mockResolvedValueOnce(textResponse('Done'));
 
@@ -429,7 +419,7 @@ describe('orchestrate MCP tool dispatch', () => {
       ]),
     };
 
-    mockCreate
+    mockCallClaudeRaw
       .mockResolvedValueOnce(toolUseResponse('mcp_search', { q: 'hello' }))
       .mockResolvedValueOnce(textResponse('Found it'));
 
@@ -438,15 +428,15 @@ describe('orchestrate MCP tool dispatch', () => {
   });
 
   it('rejects set_baruch_mcp_servers for non-admins', async () => {
-    mockCreate
+    mockCallClaudeRaw
       .mockResolvedValueOnce(toolUseResponse('set_baruch_mcp_servers', { servers: [] }))
       .mockResolvedValueOnce(textResponse('Denied'));
 
     const result = await orchestrate('test', buildOptions({ isAdmin: false }));
     expect(result).toEqual(['Denied']);
-    const msgs = mockCreate.mock.calls[1][0].messages;
-    const toolResult = msgs[msgs.length - 1];
-    expect(toolResult.content[0].is_error).toBe(true);
-    expect(toolResult.content[0].content).toContain('requires admin privileges');
+    const params = mockCallClaudeRaw.mock.calls[1][0];
+    const lastMsg = params.messages[params.messages.length - 1];
+    expect(lastMsg.content[0].is_error).toBe(true);
+    expect(lastMsg.content[0].content).toContain('requires admin privileges');
   });
 });

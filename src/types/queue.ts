@@ -1,15 +1,15 @@
 /**
- * Types for the UserQueue Durable Object
+ * Types for the queue logic in UserDO.
  *
- * The UserQueue sits between the worker router and UserSession,
- * serializing requests per-user via an alarm-based processing loop.
+ * The queue is an internal FIFO within the unified UserDO,
+ * serializing requests per-user when the DO is already busy.
  */
 
 import { ProgressMode } from './engine.js';
 
 /**
  * Entry in the queue awaiting processing.
- * Contains everything needed to forward the request to UserSession.
+ * Contains everything needed to process the chat request.
  */
 export interface QueueEntry {
   message_id: string;
@@ -30,48 +30,4 @@ export interface QueueEntry {
   delivery: 'callback' | 'sse';
   /** Number of times this entry has been retried after transient failures */
   retry_count: number;
-  /** Worker's public origin, used by UserQueue to route via the stateless Worker */
-  _worker_origin?: string | undefined;
-}
-
-/**
- * Stored response for late-connecting SSE clients.
- */
-export interface StoredResponse {
-  message_id: string;
-  events: StoredSSEEvent[];
-  stored_at: number;
-}
-
-export interface StoredSSEEvent {
-  event: string;
-  data: string;
-}
-
-/**
- * Metadata for the chunked incremental event store.
- */
-export interface EventStoreMetadata {
-  message_id: string;
-  event_count: number;
-  done: boolean;
-  created_at: number;
-}
-
-export interface PollResponse {
-  message_id: string;
-  events: StoredSSEEvent[];
-  done: boolean;
-  cursor: number;
-}
-
-export interface EnqueueResponse {
-  message_id: string;
-  queue_position: number;
-}
-
-export interface QueueStatusResponse {
-  queue_length: number;
-  processing: boolean;
-  stored_response_count: number;
 }

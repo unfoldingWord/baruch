@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { UserSession } from '../../src/durable-objects/user-session.js';
+import { UserDO } from '../../src/durable-objects/user-do.js';
 import { Env } from '../../src/config/types.js';
 import * as claudeIndex from '../../src/services/claude/index.js';
 
@@ -35,6 +35,7 @@ function createMockStorage() {
       return Promise.resolve();
     }),
     list: vi.fn().mockResolvedValue(new Map()),
+    setAlarm: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -55,19 +56,18 @@ function buildMockEnv(): Env {
     ENGINE_API_KEY: 'test-engine-key',
     ENGINE_BASE_URL: 'https://api.example.com',
     PROMPT_OVERRIDES: { get: vi.fn().mockResolvedValue(null) } as unknown as KVNamespace,
-    USER_SESSION: {} as DurableObjectNamespace,
-    USER_QUEUE: {} as DurableObjectNamespace,
+    USER_DO: {} as DurableObjectNamespace,
   };
 }
 
-let session: UserSession;
+let userDO: UserDO;
 let env: Env;
 
 beforeEach(() => {
   vi.clearAllMocks();
   storageData.clear();
   env = buildMockEnv();
-  session = new UserSession(mockState, env);
+  userDO = new UserDO(mockState, env);
 });
 
 function makeRequest(path: string, method = 'GET', body?: unknown): Request {
@@ -76,38 +76,36 @@ function makeRequest(path: string, method = 'GET', body?: unknown): Request {
   return new Request(`http://fake-host${path}`, opts);
 }
 
-describe('UserSession preferences', () => {
+describe('UserDO preferences', () => {
   it('returns default preferences', async () => {
-    const res = await session.fetch(makeRequest('/preferences'));
+    const res = await userDO.fetch(makeRequest('/preferences'));
     const data = await res.json();
     expect(data).toEqual({ response_language: 'en' });
   });
 
   it('updates response_language', async () => {
-    const res = await session.fetch(
-      makeRequest('/preferences', 'PUT', { response_language: 'es' })
-    );
+    const res = await userDO.fetch(makeRequest('/preferences', 'PUT', { response_language: 'es' }));
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.response_language).toBe('es');
   });
 
   it('rejects invalid language code', async () => {
-    const res = await session.fetch(
+    const res = await userDO.fetch(
       makeRequest('/preferences', 'PUT', { response_language: 'invalid' })
     );
     expect(res.status).toBe(400);
   });
 
   it('rejects numeric language code', async () => {
-    const res = await session.fetch(makeRequest('/preferences', 'PUT', { response_language: 42 }));
+    const res = await userDO.fetch(makeRequest('/preferences', 'PUT', { response_language: 42 }));
     expect(res.status).toBe(400);
   });
 });
 
-describe('UserSession history', () => {
+describe('UserDO history', () => {
   it('returns empty history by default', async () => {
-    const res = await session.fetch(makeRequest('/history?user_id=u1'));
+    const res = await userDO.fetch(makeRequest('/history?user_id=u1'));
     const data = await res.json();
     expect(data.entries).toEqual([]);
     expect(data.total_count).toBe(0);
@@ -121,7 +119,7 @@ describe('UserSession history', () => {
     }));
     storageData.set('history', entries);
 
-    const res = await session.fetch(makeRequest('/history?user_id=u1&limit=2&offset=1'));
+    const res = await userDO.fetch(makeRequest('/history?user_id=u1&limit=2&offset=1'));
     const data = await res.json();
     expect(data.entries).toHaveLength(2);
     expect(data.total_count).toBe(5);
@@ -131,32 +129,31 @@ describe('UserSession history', () => {
 
   it('deletes history', async () => {
     storageData.set('history', [{ user_message: 'hi', assistant_response: 'hello', timestamp: 1 }]);
-    const res = await session.fetch(makeRequest('/history', 'DELETE'));
+    const res = await userDO.fetch(makeRequest('/history', 'DELETE'));
     expect(res.status).toBe(200);
     expect(storageData.has('history')).toBe(false);
   });
 });
 
-describe('UserSession memory', () => {
+describe('UserDO memory', () => {
   it('returns empty memory', async () => {
-    const res = await session.fetch(makeRequest('/memory'));
+    const res = await userDO.fetch(makeRequest('/memory'));
     expect(res.status).toBe(200);
   });
 
   it('deletes memory', async () => {
-    const res = await session.fetch(makeRequest('/memory', 'DELETE'));
+    const res = await userDO.fetch(makeRequest('/memory', 'DELETE'));
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.message).toBe('User memory cleared');
   });
 });
 
-describe('UserSession chat locking', () => {
+describe('UserDO chat locking', () => {
   it('rejects concurrent requests with 429', async () => {
-    // Simulate an existing lock
     storageData.set('_processing_lock', Date.now());
 
-    const res = await session.fetch(
+    const res = await userDO.fetch(
       makeRequest('/chat', 'POST', { user_id: 'u1', client_id: 'c1', message: 'hi' })
     );
     expect(res.status).toBe(429);
@@ -165,7 +162,7 @@ describe('UserSession chat locking', () => {
   });
 
   it('allows request when no lock exists', async () => {
-    const res = await session.fetch(
+    const res = await userDO.fetch(
       makeRequest('/chat', 'POST', { user_id: 'u1', client_id: 'c1', message: 'hello' })
     );
     expect(res.status).toBe(200);
@@ -174,19 +171,18 @@ describe('UserSession chat locking', () => {
   });
 
   it('overwrites stale lock', async () => {
-    // Lock from 2 minutes ago (stale threshold is 90s)
     storageData.set('_processing_lock', Date.now() - 120000);
 
-    const res = await session.fetch(
+    const res = await userDO.fetch(
       makeRequest('/chat', 'POST', { user_id: 'u1', client_id: 'c1', message: 'hello' })
     );
     expect(res.status).toBe(200);
   });
 });
 
-describe('UserSession chat validation', () => {
+describe('UserDO chat validation', () => {
   it('rejects empty message', async () => {
-    const res = await session.fetch(
+    const res = await userDO.fetch(
       makeRequest('/chat', 'POST', { user_id: 'u1', client_id: 'c1', message: '' })
     );
     expect(res.status).toBe(400);
@@ -195,16 +191,16 @@ describe('UserSession chat validation', () => {
   });
 
   it('rejects whitespace-only message', async () => {
-    const res = await session.fetch(
+    const res = await userDO.fetch(
       makeRequest('/chat', 'POST', { user_id: 'u1', client_id: 'c1', message: '   ' })
     );
     expect(res.status).toBe(400);
   });
 });
 
-describe('UserSession 404', () => {
+describe('UserDO 404', () => {
   it('returns 404 for unknown routes', async () => {
-    const res = await session.fetch(makeRequest('/nonexistent'));
+    const res = await userDO.fetch(makeRequest('/nonexistent'));
     expect(res.status).toBe(404);
   });
 });
@@ -217,11 +213,11 @@ async function collectSSEEvents(res: Response): Promise<Record<string, unknown>[
     .map((chunk) => JSON.parse(chunk.slice(6)) as Record<string, unknown>);
 }
 
-describe('UserSession initiate', () => {
-  const initiateBody = { user_id: 'u1', client_id: 'c1', is_admin: true };
+const initiateBody = { user_id: 'u1', client_id: 'c1', is_admin: true };
 
+describe('UserDO initiate fresh', () => {
   it('streams SSE and stores AI-initiated entry on empty history', async () => {
-    const res = await session.fetch(makeRequest('/initiate', 'POST', initiateBody));
+    const res = await userDO.fetch(makeRequest('/initiate', 'POST', initiateBody));
     expect(res.headers.get('Content-Type')).toBe('text/event-stream');
 
     const events = await collectSSEEvents(res);
@@ -236,6 +232,24 @@ describe('UserSession initiate', () => {
     expect(history[0]!.assistant_response).toBe('Mocked response');
   });
 
+  it('marks first_interaction false after generating opening', async () => {
+    await (await userDO.fetch(makeRequest('/initiate', 'POST', initiateBody))).text();
+    const prefs = storageData.get('preferences') as { first_interaction: boolean };
+    expect(prefs.first_interaction).toBe(false);
+  });
+
+  it('sends error SSE event when orchestrate throws', async () => {
+    vi.spyOn(claudeIndex, 'orchestrate').mockRejectedValueOnce(new Error('API failure'));
+    const events = await collectSSEEvents(
+      await userDO.fetch(makeRequest('/initiate', 'POST', initiateBody))
+    );
+    const errorEvent = events.find((e) => e['type'] === 'error');
+    expect(errorEvent).toBeDefined();
+    expect(errorEvent!['error']).toBe('API failure');
+  });
+});
+
+describe('UserDO initiate cached', () => {
   it('streams cached response without re-calling orchestrate', async () => {
     storageData.set('history', [
       { user_message: '', assistant_response: 'Cached opening', timestamp: Date.now() },
@@ -244,7 +258,7 @@ describe('UserSession initiate', () => {
 
     const orchestrateSpy = vi.spyOn(claudeIndex, 'orchestrate');
     const events = await collectSSEEvents(
-      await session.fetch(makeRequest('/initiate', 'POST', initiateBody))
+      await userDO.fetch(makeRequest('/initiate', 'POST', initiateBody))
     );
     const completeEvent = events.find((e) => e['type'] === 'complete');
     expect(completeEvent).toBeDefined();
@@ -257,25 +271,76 @@ describe('UserSession initiate', () => {
     expect(orchestrateSpy).not.toHaveBeenCalled();
   });
 
-  it('marks first_interaction false after generating opening', async () => {
-    await (await session.fetch(makeRequest('/initiate', 'POST', initiateBody))).text();
-    const prefs = storageData.get('preferences') as { first_interaction: boolean };
-    expect(prefs.first_interaction).toBe(false);
-  });
-
-  it('sends error SSE event when orchestrate throws', async () => {
-    vi.spyOn(claudeIndex, 'orchestrate').mockRejectedValueOnce(new Error('API failure'));
-    const events = await collectSSEEvents(
-      await session.fetch(makeRequest('/initiate', 'POST', initiateBody))
-    );
-    const errorEvent = events.find((e) => e['type'] === 'error');
-    expect(errorEvent).toBeDefined();
-    expect(errorEvent!['error']).toBe('API failure');
-  });
-
   it('acquires lock and rejects concurrent initiate requests', async () => {
     storageData.set('_processing_lock', Date.now());
-    const res = await session.fetch(makeRequest('/initiate', 'POST', initiateBody));
+    const res = await userDO.fetch(makeRequest('/initiate', 'POST', initiateBody));
     expect(res.status).toBe(429);
+  });
+});
+
+describe('UserDO queue enqueue', () => {
+  const enqueueBody = {
+    user_id: 'u1',
+    client_id: 'c1',
+    message: 'hello',
+    org: 'testOrg',
+    delivery: 'callback',
+    is_admin: false,
+  };
+
+  it('rejects missing user_id', async () => {
+    const res = await userDO.fetch(
+      makeRequest('/enqueue', 'POST', { message: 'hi', org: 'testOrg' })
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects missing message', async () => {
+    const res = await userDO.fetch(
+      makeRequest('/enqueue', 'POST', { user_id: 'u1', org: 'testOrg' })
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 202 for callback delivery when idle', async () => {
+    const res = await userDO.fetch(makeRequest('/enqueue', 'POST', enqueueBody));
+    expect(res.status).toBe(202);
+    const data = await res.json();
+    expect(data.message_id).toBeDefined();
+    expect(data.status).toBe('processing');
+  });
+
+  it('returns 202 with queue_position when busy (callback)', async () => {
+    storageData.set('_processing_lock', Date.now());
+    const res = await userDO.fetch(makeRequest('/enqueue', 'POST', enqueueBody));
+    expect(res.status).toBe(202);
+    const data = await res.json();
+    expect(data.queue_position).toBe(1);
+  });
+
+  it('returns SSE response for sse delivery when idle', async () => {
+    const sseBody = { ...enqueueBody, delivery: 'sse' };
+    const res = await userDO.fetch(makeRequest('/enqueue', 'POST', sseBody));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toBe('text/event-stream');
+  });
+});
+
+describe('UserDO queue status', () => {
+  it('returns empty queue status', async () => {
+    const res = await userDO.fetch(makeRequest('/status'));
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.queue_length).toBe(0);
+    expect(data.processing).toBe(false);
+  });
+
+  it('reflects queue entries and processing state', async () => {
+    storageData.set('queue', [{ message_id: 'msg-1' }]);
+    storageData.set('_processing_lock', Date.now());
+    const res = await userDO.fetch(makeRequest('/status'));
+    const data = await res.json();
+    expect(data.queue_length).toBe(1);
+    expect(data.processing).toBe(true);
   });
 });

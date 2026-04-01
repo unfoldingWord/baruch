@@ -8,7 +8,7 @@
  * 4. Supports streaming via callbacks
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import type Anthropic from '@anthropic-ai/sdk';
 import { Env } from '../../config/types.js';
 import { ChatHistoryEntry, StreamCallbacks } from '../../types/engine.js';
 import {
@@ -33,6 +33,7 @@ import {
   ToolCatalog,
 } from '../mcp/index.js';
 import { createHealthTracker, HealthTracker, isServerHealthy } from '../mcp/health.js';
+import { callClaudeRaw, streamClaudeRaw } from './anthropic-client.js';
 import { buildSystemPrompt, historyToMessages } from './system-prompt.js';
 import {
   ADMIN_ONLY_TOOLS,
@@ -85,7 +86,7 @@ interface ToolUseBlock {
 }
 
 interface OrchestrationContext {
-  client: Anthropic;
+  apiKey: string;
   model: string;
   maxTokens: number;
   systemPrompt: string;
@@ -118,28 +119,21 @@ function extractTextResponses(content: Anthropic.ContentBlock[]): string[] {
 }
 
 async function callClaude(ctx: OrchestrationContext): Promise<Anthropic.Message> {
-  if (ctx.callbacks) {
-    return streamClaudeResponse(ctx);
-  }
-  return ctx.client.messages.create({
+  const params = {
     model: ctx.model,
-    max_tokens: ctx.maxTokens,
+    maxTokens: ctx.maxTokens,
     system: ctx.systemPrompt,
     messages: ctx.messages,
     tools: ctx.tools,
-  });
-}
+  };
 
-async function streamClaudeResponse(ctx: OrchestrationContext): Promise<Anthropic.Message> {
-  const stream = ctx.client.messages.stream({
-    model: ctx.model,
-    max_tokens: ctx.maxTokens,
-    system: ctx.systemPrompt,
-    messages: ctx.messages,
-    tools: ctx.tools,
-  });
-  stream.on('text', (text) => ctx.callbacks?.onProgress(text));
-  return stream.finalMessage();
+  if (ctx.callbacks) {
+    const stream = streamClaudeRaw(params, ctx.apiKey);
+    stream.onText((text) => ctx.callbacks?.onProgress(text));
+    return stream.finalMessage();
+  }
+
+  return callClaudeRaw(params, ctx.apiKey);
 }
 
 async function processIteration(ctx: OrchestrationContext, iteration: number): Promise<boolean> {
@@ -232,7 +226,7 @@ function createOrchestrationContext(
   const allTools = [...builtinTools, ...mcpTools];
 
   return {
-    client: new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }),
+    apiKey: env.ANTHROPIC_API_KEY,
     model,
     maxTokens,
     systemPrompt: buildSystemPrompt(preferences, history, promptValues, {
@@ -286,9 +280,7 @@ export async function orchestrate(
     }
   } catch (error) {
     ctx.logger.error('claude_error', error);
-    if (error instanceof Anthropic.APIError) {
-      throw new ClaudeAPIError(error.message, error.status);
-    }
+    if (error instanceof ClaudeAPIError) throw error;
     throw error;
   }
 
