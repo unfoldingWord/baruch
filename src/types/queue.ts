@@ -30,6 +30,8 @@ export interface QueueEntry {
   delivery: 'callback' | 'sse';
   /** Number of times this entry has been retried after transient failures */
   retry_count: number;
+  /** Worker's public origin, used by UserQueue to route via the stateless Worker */
+  _worker_origin?: string | undefined;
 }
 
 /**

@@ -219,6 +219,31 @@ describe('UserQueue is_admin passthrough', () => {
   });
 });
 
+describe('UserQueue _worker_origin passthrough', () => {
+  it('stores _worker_origin when provided at enqueue', async () => {
+    const res = await queue.fetch(
+      makeRequest('/enqueue', 'POST', {
+        user_id: 'u1',
+        message: 'hi',
+        org: 'testOrg',
+        _worker_origin: 'https://baruch.example.com',
+      })
+    );
+    expect(res.status).toBe(202);
+    const queueEntries = storageData.get('queue') as Array<{ _worker_origin?: string }>;
+    expect(queueEntries[0]._worker_origin).toBe('https://baruch.example.com');
+  });
+
+  it('leaves _worker_origin undefined when not provided', async () => {
+    const res = await queue.fetch(
+      makeRequest('/enqueue', 'POST', { user_id: 'u1', message: 'hi', org: 'testOrg' })
+    );
+    expect(res.status).toBe(202);
+    const queueEntries = storageData.get('queue') as Array<{ _worker_origin?: string }>;
+    expect(queueEntries[0]._worker_origin).toBeUndefined();
+  });
+});
+
 describe('UserQueue queue depth limit', () => {
   it('rejects when queue is full', async () => {
     // Fill the queue to default max (50)
