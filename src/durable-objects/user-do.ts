@@ -130,6 +130,8 @@ function parseEnqueueBody(body: Record<string, unknown>): QueueEntry | string {
     message: body.message as string,
     message_type: body.message_type === 'audio' ? ('audio' as const) : ('text' as const),
     org: body.org as string,
+    // is_admin is asserted by the upstream caller (admin portal BFF proxy).
+    // Baruch trusts the caller since requests are authenticated via BARUCH_API_KEY.
     is_admin: body.is_admin === true,
     enqueued_at: Date.now(),
     delivery: body.delivery === 'callback' ? ('callback' as const) : ('sse' as const),
@@ -150,7 +152,7 @@ function queueEntryToChatRequest(entry: QueueEntry): ChatRequest {
   if (entry.audio_base64) req.audio_base64 = entry.audio_base64;
   if (entry.audio_format) req.audio_format = entry.audio_format;
   if (entry.progress_callback_url) req.progress_callback_url = entry.progress_callback_url;
-  if (entry.progress_throttle_seconds)
+  if (entry.progress_throttle_seconds != null)
     req.progress_throttle_seconds = entry.progress_throttle_seconds;
   if (entry.progress_mode) req.progress_mode = entry.progress_mode;
   if (entry.message_key) req.message_key = entry.message_key;
@@ -251,10 +253,11 @@ export class UserDO {
     this.queueStreams.set(entry.message_id, writer);
 
     if (lockAcquired) {
-      this.runQueueEntry(entry).finally(() => this.drainQueueAndRelease());
+      this.runQueueEntry(entry)
+        .catch((e) => this.logDetachedError('enqueue_sse_error', e))
+        .finally(() => this.drainQueueAndRelease());
     } else {
-      this.enqueueToStorage(entry);
-      this.scheduleAlarmSafetyNet();
+      void this.enqueueToStorage(entry).then(() => this.scheduleAlarmSafetyNet());
     }
 
     return new Response(readable, { status: 200, headers: SSE_HEADERS });
@@ -262,7 +265,9 @@ export class UserDO {
 
   private async enqueueCallback(entry: QueueEntry, lockAcquired: boolean): Promise<Response> {
     if (lockAcquired) {
-      this.runQueueEntry(entry).finally(() => this.drainQueueAndRelease());
+      this.runQueueEntry(entry)
+        .catch((e) => this.logDetachedError('enqueue_callback_error', e))
+        .finally(() => this.drainQueueAndRelease());
       return Response.json({ message_id: entry.message_id, status: 'processing' }, { status: 202 });
     }
 
@@ -361,7 +366,15 @@ export class UserDO {
       return;
     }
 
-    const writer = this.queueStreams.get(entry.message_id);
+    if (entry.delivery === 'sse') {
+      await this.sendSSEError(entry.message_id, errorMessage);
+    } else {
+      await this.sendCallbackError(entry, errorMessage);
+    }
+  }
+
+  private async sendSSEError(messageId: string, errorMessage: string): Promise<void> {
+    const writer = this.queueStreams.get(messageId);
     if (!writer) return;
     try {
       const encoder = new TextEncoder();
@@ -370,6 +383,18 @@ export class UserDO {
       await writer.close();
     } catch {
       // Writer may already be closed
+    }
+  }
+
+  private async sendCallbackError(entry: QueueEntry, errorMessage: string): Promise<void> {
+    const body = queueEntryToChatRequest(entry);
+    const callbacks = this.buildWebhookCallbacks(body);
+    if (callbacks) {
+      try {
+        await callbacks.onError(errorMessage);
+      } catch {
+        // Best-effort error notification
+      }
     }
   }
 
@@ -436,6 +461,11 @@ export class UserDO {
     const queue = (await this.state.storage.get<QueueEntry[]>(QUEUE_STORAGE_KEY)) ?? [];
     const lock = await this.state.storage.get<number>(PROCESSING_LOCK_KEY);
     return Response.json({ queue_length: queue.length, processing: lock != null });
+  }
+
+  private logDetachedError(event: string, error: unknown): void {
+    const logger = createRequestLogger(crypto.randomUUID());
+    logger.error(event, error);
   }
 
   private scheduleAlarmSafetyNet(): void {

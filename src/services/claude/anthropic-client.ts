@@ -78,17 +78,17 @@ export async function callClaudeRaw(
 /**
  * Streaming call to the Anthropic Messages API.
  * Returns a ClaudeStream that emits text deltas and resolves to the final message.
+ * Stream consumption is deferred until finalMessage() is called, so onText() is
+ * guaranteed to be registered before any events fire.
  */
 export function streamClaudeRaw(params: ClaudeRequestParams, apiKey: string): ClaudeStream {
   let textHandler: ((text: string) => void) | undefined;
-
-  const messagePromise = consumeStream(params, apiKey, (text) => textHandler?.(text));
 
   return {
     onText(handler: (text: string) => void) {
       textHandler = handler;
     },
-    finalMessage: () => messagePromise,
+    finalMessage: () => consumeStream(params, apiKey, (text) => textHandler?.(text)),
   };
 }
 
@@ -117,7 +117,12 @@ async function assembleMessageFromStream(
   const contentBlocks: Anthropic.ContentBlock[] = [];
 
   for await (const field of parseSSEStream(body)) {
-    const data = JSON.parse(field.data);
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(field.data);
+    } catch {
+      continue; // Skip malformed SSE events (e.g. ping, comments)
+    }
     processStreamEvent(data, message, contentBlocks, onText);
   }
 
@@ -170,7 +175,25 @@ function buildFinalMessage(
   message: Partial<Anthropic.Message>,
   contentBlocks: Anthropic.ContentBlock[]
 ): Anthropic.Message {
-  // Parse accumulated JSON for tool_use blocks
+  if (!message.id) {
+    throw new ClaudeAPIError('Incomplete stream: missing message_start event', 500);
+  }
+
+  parseToolUseInputs(contentBlocks);
+
+  return {
+    id: message.id,
+    type: 'message',
+    role: 'assistant',
+    content: contentBlocks,
+    model: (message.model as string) ?? '',
+    stop_reason: (message.stop_reason as Anthropic.Message['stop_reason']) ?? null,
+    stop_sequence: (message.stop_sequence as string) ?? null,
+    usage: (message.usage as Anthropic.Usage) ?? { input_tokens: 0, output_tokens: 0 },
+  };
+}
+
+function parseToolUseInputs(contentBlocks: Anthropic.ContentBlock[]): void {
   for (const block of contentBlocks) {
     if (block.type === 'tool_use') {
       const raw = (block as unknown as { _rawInput?: string })._rawInput;
@@ -180,15 +203,4 @@ function buildFinalMessage(
       }
     }
   }
-
-  return {
-    id: message.id ?? '',
-    type: 'message',
-    role: 'assistant',
-    content: contentBlocks,
-    model: (message.model as string) ?? '',
-    stop_reason: (message.stop_reason as Anthropic.Message['stop_reason']) ?? null,
-    stop_sequence: (message.stop_sequence as string) ?? null,
-    usage: (message.usage as Anthropic.Usage) ?? { input_tokens: 0, output_tokens: 0 },
-  };
 }

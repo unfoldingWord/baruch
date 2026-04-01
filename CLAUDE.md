@@ -6,10 +6,12 @@ Baruch is a Cloudflare Worker that powers an AI configuration assistant and know
 
 ## Architecture
 
-- **Runtime**: Cloudflare Workers with Durable Objects
+- **Runtime**: Cloudflare Workers with single unified Durable Object (UserDO)
 - **Framework**: Hono router
-- **AI**: Claude (Anthropic SDK) with tool use
+- **AI**: Claude via raw `globalThis.fetch()` to Anthropic API (SDK kept for types only)
 - **Storage**: KV for prompt overrides, DO storage for user sessions/queues/memory
+- **Streaming**: SSE-first — `/enqueue` returns SSE stream directly; callback mode also supported
+- **Queue**: Internal FIFO within UserDO; processing in `fetch()` handler, `alarm()` as safety net only
 
 ## Key Conventions
 
