@@ -58,6 +58,8 @@ export async function* parseSSEStream(body: ReadableStream<Uint8Array>): AsyncGe
       buffer = lines.pop()!;
       yield* processLines(lines, state);
     }
+    // Process any remaining data in the buffer (no trailing newline)
+    if (buffer) parseLine(buffer, state);
     if (state.data) yield { event: state.event, data: state.data };
   } finally {
     reader.releaseLock();
