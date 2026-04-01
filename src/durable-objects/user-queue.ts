@@ -36,6 +36,10 @@ function isValidProgressMode(value: unknown): value is ProgressMode {
   return typeof value === 'string' && VALID_PROGRESS_MODES.includes(value as ProgressMode);
 }
 
+function isValidOrigin(value: unknown): boolean {
+  return typeof value === 'string' && (value.startsWith('https://') || value.startsWith('http://'));
+}
+
 function validateEnqueueBody(body: Record<string, unknown>): string | null {
   if (!body.user_id || typeof body.user_id !== 'string') return 'user_id is required';
   if (!body.message || typeof body.message !== 'string') return 'message is required';
@@ -75,7 +79,9 @@ function parseEnqueueBody(body: Record<string, unknown>): QueueEntry | string {
     enqueued_at: Date.now(),
     delivery: body.delivery === 'callback' ? ('callback' as const) : ('sse' as const),
     retry_count: 0,
-    _worker_origin: typeof body._worker_origin === 'string' ? body._worker_origin : undefined,
+    _worker_origin: isValidOrigin(body._worker_origin)
+      ? (body._worker_origin as string)
+      : undefined,
     ...extractOptionalFields(body),
   };
 }
@@ -84,6 +90,7 @@ function buildSessionBody(entry: QueueEntry, includeCallback: boolean): string {
   return JSON.stringify({
     client_id: entry.client_id,
     user_id: entry.user_id,
+    // org is required — the Worker's resolveOrgFromBody() uses it to route to the correct UserSession DO
     org: entry.org,
     message: entry.message,
     message_type: entry.message_type,

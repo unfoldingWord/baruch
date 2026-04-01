@@ -244,6 +244,124 @@ describe('UserQueue _worker_origin passthrough', () => {
   });
 });
 
+function seedQueueEntry(overrides: Record<string, unknown> = {}) {
+  storageData.set('queue', [
+    {
+      message_id: 'msg-1',
+      user_id: 'u1',
+      client_id: 'c1',
+      message: 'hello',
+      message_type: 'text',
+      org: 'testOrg',
+      is_admin: false,
+      enqueued_at: Date.now(),
+      delivery: 'callback',
+      retry_count: 0,
+      _worker_origin: 'https://baruch.example.com',
+      progress_callback_url: 'https://cb.example.com/hook',
+      ...overrides,
+    },
+  ]);
+  storageData.set('processing', true);
+}
+
+function makeSseStream(): ReadableStream<Uint8Array> {
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('data: {"type":"done"}\n\n'));
+      controller.close();
+    },
+  });
+}
+
+describe('UserQueue fetchViaWorker callback routing', () => {
+  it('calls globalThis.fetch with correct URL, auth, and body', async () => {
+    seedQueueEntry();
+    const mockFetch = vi.fn().mockResolvedValue(new Response('ok', { status: 200 }));
+    vi.stubGlobal('fetch', mockFetch);
+
+    await queue.alarm();
+
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe('https://baruch.example.com/api/v1/chat');
+    expect(init.method).toBe('POST');
+    expect(init.headers.Authorization).toBe('Bearer test-baruch-key');
+    expect(init.headers['Content-Type']).toBe('application/json');
+
+    const body = JSON.parse(init.body);
+    expect(body.org).toBe('testOrg');
+    expect(body.user_id).toBe('u1');
+    expect(body.progress_callback_url).toBe('https://cb.example.com/hook');
+
+    vi.unstubAllGlobals();
+  });
+
+  it('dead-letters when _worker_origin is missing', async () => {
+    seedQueueEntry({ _worker_origin: undefined });
+    const mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+
+    await queue.alarm();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    const remaining = storageData.get('queue') as unknown[];
+    expect(remaining ?? []).toHaveLength(0);
+
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('UserQueue fetchViaWorker SSE routing', () => {
+  it('calls /api/v1/chat/stream for SSE delivery', async () => {
+    seedQueueEntry({ delivery: 'sse', progress_callback_url: undefined });
+    const mockFetch = vi.fn().mockResolvedValue(new Response(makeSseStream(), { status: 200 }));
+    vi.stubGlobal('fetch', mockFetch);
+
+    await queue.alarm();
+
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toBe('https://baruch.example.com/api/v1/chat/stream');
+
+    vi.unstubAllGlobals();
+  });
+
+  it('excludes callback fields from SSE body', async () => {
+    seedQueueEntry({
+      delivery: 'sse',
+      progress_callback_url: 'https://cb.example.com/hook',
+      progress_mode: 'sentence',
+    });
+    const mockFetch = vi.fn().mockResolvedValue(new Response(makeSseStream(), { status: 200 }));
+    vi.stubGlobal('fetch', mockFetch);
+
+    await queue.alarm();
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.progress_callback_url).toBeUndefined();
+    expect(body.progress_mode).toBeUndefined();
+
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('UserQueue _worker_origin validation', () => {
+  it('rejects non-URL _worker_origin values', async () => {
+    const res = await queue.fetch(
+      makeRequest('/enqueue', 'POST', {
+        user_id: 'u1',
+        message: 'hi',
+        org: 'testOrg',
+        _worker_origin: 'not-a-url',
+      })
+    );
+    expect(res.status).toBe(202);
+    const queueEntries = storageData.get('queue') as Array<{ _worker_origin?: string }>;
+    expect(queueEntries[0]._worker_origin).toBeUndefined();
+  });
+});
+
 describe('UserQueue queue depth limit', () => {
   it('rejects when queue is full', async () => {
     // Fill the queue to default max (50)
