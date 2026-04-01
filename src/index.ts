@@ -1,21 +1,21 @@
 /**
  * Baruch worker entry point
  *
- * Routes requests to Durable Objects for per-user serialization.
+ * Routes requests to the UserDO Durable Object for per-user serialization.
  * No admin endpoints — Baruch itself IS the admin interface (via Claude tools).
  */
 
 import { Hono } from 'hono';
 import { Env } from './config/types.js';
 import { APP_VERSION } from './generated/version.js';
-import { UserQueue, UserSession } from './durable-objects/index.js';
+import { UserDO } from './durable-objects/index.js';
 import { ChatRequest } from './types/engine.js';
 import { DO_BASE_URL } from './config/constants.js';
 import { constantTimeCompare } from './utils/crypto.js';
 import { createRequestLogger } from './utils/logger.js';
-import { resolveOrgFromBody, resolveOrgFromParams } from './utils/org.js';
+import { resolveOrgFromBody } from './utils/org.js';
 
-export { UserQueue, UserSession };
+export { UserDO };
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -38,7 +38,7 @@ app.use('/api/*', async (c, next) => {
   return next();
 });
 
-// Chat endpoints
+// Chat endpoints — route to UserDO
 app.post('/api/v1/chat', async (c) => {
   return handleChatRequest(c.req.raw, c.env, '/chat');
 });
@@ -51,17 +51,9 @@ app.post('/api/v1/chat/initiate', async (c) => {
   return handleChatRequest(c.req.raw, c.env, '/initiate');
 });
 
-// Queue endpoints (UserQueue DO)
+// Queue endpoints — route to the same UserDO (unified)
 app.post('/api/v1/chat/queue', async (c) => {
   return handleMessageEnqueue(c.req.raw, c.env);
-});
-
-app.get('/api/v1/chat/queue/stream', async (c) => {
-  return handleQueueStream(c.req.raw, c.env);
-});
-
-app.get('/api/v1/chat/queue/poll', async (c) => {
-  return handleQueuePoll(c.req.raw, c.env);
 });
 
 app.get('/api/v1/chat/queue/:userId', async (c) => {
@@ -132,8 +124,8 @@ async function handleChatRequest(request: Request, env: Env, doPath: string): Pr
       path: doPath,
     });
 
-    const doId = env.USER_SESSION.idFromName(`user:${org}:${body.user_id}`);
-    const stub = env.USER_SESSION.get(doId);
+    const doId = env.USER_DO.idFromName(`user:${org}:${body.user_id}`);
+    const stub = env.USER_DO.get(doId);
 
     const doUrl = new URL(request.url);
     doUrl.pathname = doPath;
@@ -181,8 +173,8 @@ async function handleUserRequest(
     method: request.method,
   });
 
-  const doId = env.USER_SESSION.idFromName(`user:${org}:${userId}`);
-  const stub = env.USER_SESSION.get(doId);
+  const doId = env.USER_DO.idFromName(`user:${org}:${userId}`);
+  const stub = env.USER_DO.get(doId);
 
   const doUrl = new URL(request.url);
   doUrl.pathname = doPath;
@@ -200,7 +192,7 @@ async function handleUserRequest(
 }
 
 /**
- * Handle message enqueue (POST /api/v1/chat/queue)
+ * Handle message enqueue — route to the same UserDO (no separate queue DO)
  */
 async function handleMessageEnqueue(request: Request, env: Env): Promise<Response> {
   const requestId = crypto.randomUUID();
@@ -218,13 +210,14 @@ async function handleMessageEnqueue(request: Request, env: Env): Promise<Respons
 
     const delivery = body.progress_callback_url ? 'callback' : 'sse';
 
-    const doId = env.USER_QUEUE.idFromName(`queue:${org}:${body.user_id}`);
-    const stub = env.USER_QUEUE.get(doId);
+    // Route to the SAME UserDO that handles chat — no separate queue DO
+    const doId = env.USER_DO.idFromName(`user:${org}:${body.user_id}`);
+    const stub = env.USER_DO.get(doId);
 
     const doRequest = new Request(`${DO_BASE_URL}/enqueue`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...body, org, delivery, _worker_origin: new URL(request.url).origin }),
+      body: JSON.stringify({ ...body, org, delivery }),
     });
 
     return stub.fetch(doRequest);
@@ -238,59 +231,7 @@ async function handleMessageEnqueue(request: Request, env: Env): Promise<Respons
 }
 
 /**
- * Handle queue stream (GET /api/v1/chat/queue/stream)
- */
-async function handleQueueStream(request: Request, env: Env): Promise<Response> {
-  const url = new URL(request.url);
-  const userId = url.searchParams.get('user_id');
-  const messageId = url.searchParams.get('message_id');
-  const org = resolveOrgFromParams(url.searchParams, env.DEFAULT_ORG);
-
-  if (!userId) {
-    return Response.json({ error: 'user_id query parameter is required' }, { status: 400 });
-  }
-  if (!messageId) {
-    return Response.json({ error: 'message_id query parameter is required' }, { status: 400 });
-  }
-
-  const doId = env.USER_QUEUE.idFromName(`queue:${org}:${userId}`);
-  const stub = env.USER_QUEUE.get(doId);
-
-  const doUrl = new URL(`${DO_BASE_URL}/stream`);
-  doUrl.searchParams.set('message_id', messageId);
-
-  return stub.fetch(new Request(doUrl.toString()));
-}
-
-/**
- * Handle poll for incremental events (GET /api/v1/chat/queue/poll)
- */
-async function handleQueuePoll(request: Request, env: Env): Promise<Response> {
-  const url = new URL(request.url);
-  const userId = url.searchParams.get('user_id');
-  const messageId = url.searchParams.get('message_id');
-  const org = resolveOrgFromParams(url.searchParams, env.DEFAULT_ORG);
-  const cursor = url.searchParams.get('cursor') ?? '0';
-
-  if (!userId) {
-    return Response.json({ error: 'user_id query parameter is required' }, { status: 400 });
-  }
-  if (!messageId) {
-    return Response.json({ error: 'message_id query parameter is required' }, { status: 400 });
-  }
-
-  const doId = env.USER_QUEUE.idFromName(`queue:${org}:${userId}`);
-  const stub = env.USER_QUEUE.get(doId);
-
-  const doUrl = new URL(`${DO_BASE_URL}/poll`);
-  doUrl.searchParams.set('message_id', messageId);
-  doUrl.searchParams.set('cursor', cursor);
-
-  return stub.fetch(new Request(doUrl.toString()));
-}
-
-/**
- * Handle queue status (GET /api/v1/chat/queue/:userId)
+ * Handle queue status
  */
 async function handleQueueStatus(
   _request: Request,
@@ -303,8 +244,8 @@ async function handleQueueStatus(
   }
 
   const org = orgParam || env.DEFAULT_ORG;
-  const doId = env.USER_QUEUE.idFromName(`queue:${org}:${userId}`);
-  const stub = env.USER_QUEUE.get(doId);
+  const doId = env.USER_DO.idFromName(`user:${org}:${userId}`);
+  const stub = env.USER_DO.get(doId);
 
   return stub.fetch(new Request(`${DO_BASE_URL}/status`));
 }

@@ -3,7 +3,7 @@
  * and converts catalog tools to Anthropic tool format for direct exposure.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import type Anthropic from '@anthropic-ai/sdk';
 import { RequestLogger } from '../../utils/logger.js';
 import { CatalogTool, MCPServerConfig, MCPServerManifest, ToolCatalog } from './types.js';
 

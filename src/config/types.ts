@@ -8,11 +8,6 @@ export interface Env {
   CLAUDE_MODEL?: string;
   CLAUDE_MAX_TOKENS?: string;
 
-  // Queue configuration (optional - has defaults)
-  MAX_QUEUE_DEPTH?: string;
-  QUEUE_STORED_RESPONSE_TTL_MS?: string;
-  QUEUE_MAX_RETRIES?: string;
-
   // Secrets (set via wrangler secret put)
   ANTHROPIC_API_KEY: string;
   BARUCH_API_KEY: string;
@@ -23,8 +18,7 @@ export interface Env {
   PROMPT_OVERRIDES: KVNamespace;
 
   // Durable Object bindings
-  USER_SESSION: DurableObjectNamespace;
-  USER_QUEUE: DurableObjectNamespace;
+  USER_DO: DurableObjectNamespace;
 }
 
 export interface RequestContext {

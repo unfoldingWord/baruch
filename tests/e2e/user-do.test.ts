@@ -4,11 +4,11 @@ import { env } from 'cloudflare:test';
 let stub: DurableObjectStub;
 
 beforeEach(() => {
-  const id = env.USER_SESSION.newUniqueId();
-  stub = env.USER_SESSION.get(id);
+  const id = env.USER_DO.newUniqueId();
+  stub = env.USER_DO.get(id);
 });
 
-describe('UserSession POST /chat', () => {
+describe('UserDO POST /chat', () => {
   it('rejects empty message', async () => {
     const response = await stub.fetch('http://fake-host/chat', {
       method: 'POST',
@@ -28,7 +28,7 @@ describe('UserSession POST /chat', () => {
   });
 });
 
-describe('UserSession preferences', () => {
+describe('UserDO preferences', () => {
   it('returns default preferences', async () => {
     const response = await stub.fetch('http://fake-host/preferences');
     expect(response.status).toBe(200);
@@ -50,7 +50,7 @@ describe('UserSession preferences', () => {
   });
 });
 
-describe('UserSession history', () => {
+describe('UserDO history', () => {
   it('returns empty history initially', async () => {
     const response = await stub.fetch('http://fake-host/history?user_id=test');
     expect(response.status).toBe(200);
@@ -67,7 +67,7 @@ describe('UserSession history', () => {
   });
 });
 
-describe('UserSession memory', () => {
+describe('UserDO memory', () => {
   it('returns empty memory initially', async () => {
     const response = await stub.fetch('http://fake-host/memory');
     expect(response.status).toBe(200);
