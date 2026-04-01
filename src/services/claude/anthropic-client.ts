@@ -198,7 +198,12 @@ function parseToolUseInputs(contentBlocks: Anthropic.ContentBlock[]): void {
     if (block.type === 'tool_use') {
       const raw = (block as unknown as { _rawInput?: string })._rawInput;
       if (raw) {
-        (block as unknown as { input: unknown }).input = JSON.parse(raw);
+        try {
+          (block as unknown as { input: unknown }).input = JSON.parse(raw);
+        } catch {
+          // Truncated stream — keep whatever partial input was accumulated
+          (block as unknown as { input: unknown }).input = {};
+        }
         delete (block as unknown as { _rawInput?: string })._rawInput;
       }
     }
