@@ -224,7 +224,7 @@ async function handleMessageEnqueue(request: Request, env: Env): Promise<Respons
     const doRequest = new Request(`${DO_BASE_URL}/enqueue`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...body, org, delivery }),
+      body: JSON.stringify({ ...body, org, delivery, _worker_origin: new URL(request.url).origin }),
     });
 
     return stub.fetch(doRequest);

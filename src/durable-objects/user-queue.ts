@@ -6,7 +6,6 @@
  * - Otherwise identical: FIFO queue, alarm processing, SSE relay, poll, rate limiting
  */
 
-import { DO_BASE_URL } from '../config/constants.js';
 import { Env } from '../config/types.js';
 import { ProgressMode } from '../types/engine.js';
 import {
@@ -35,6 +34,10 @@ const VALID_PROGRESS_MODES: ProgressMode[] = ['complete', 'iteration', 'periodic
 
 function isValidProgressMode(value: unknown): value is ProgressMode {
   return typeof value === 'string' && VALID_PROGRESS_MODES.includes(value as ProgressMode);
+}
+
+function isValidOrigin(value: unknown): boolean {
+  return typeof value === 'string' && (value.startsWith('https://') || value.startsWith('http://'));
 }
 
 function validateEnqueueBody(body: Record<string, unknown>): string | null {
@@ -76,6 +79,9 @@ function parseEnqueueBody(body: Record<string, unknown>): QueueEntry | string {
     enqueued_at: Date.now(),
     delivery: body.delivery === 'callback' ? ('callback' as const) : ('sse' as const),
     retry_count: 0,
+    _worker_origin: isValidOrigin(body._worker_origin)
+      ? (body._worker_origin as string)
+      : undefined,
     ...extractOptionalFields(body),
   };
 }
@@ -84,6 +90,8 @@ function buildSessionBody(entry: QueueEntry, includeCallback: boolean): string {
   return JSON.stringify({
     client_id: entry.client_id,
     user_id: entry.user_id,
+    // org is required — the Worker's resolveOrgFromBody() uses it to route to the correct UserSession DO
+    org: entry.org,
     message: entry.message,
     message_type: entry.message_type,
     is_admin: entry.is_admin,
@@ -426,14 +434,7 @@ export class UserQueue {
   }
 
   private async processWithCallback(entry: QueueEntry, logger: RequestLogger): Promise<void> {
-    const stub = this.getUserSessionStub(entry);
-    const doRequest = new Request(`${DO_BASE_URL}/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: buildSessionBody(entry, true),
-    });
-
-    const response = await stub.fetch(doRequest);
+    const response = await this.fetchViaWorker(entry, '/api/v1/chat');
     logger.log('callback_response', {
       message_id: entry.message_id,
       status: response.status,
@@ -441,7 +442,7 @@ export class UserQueue {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`UserSession returned ${response.status}: ${errorText}`);
+      throw new Error(`Worker returned ${response.status}: ${errorText}`);
     }
   }
 
@@ -464,17 +465,10 @@ export class UserQueue {
   }
 
   private async fetchUserSessionStream(entry: QueueEntry): Promise<Response> {
-    const stub = this.getUserSessionStub(entry);
-    const doRequest = new Request(`${DO_BASE_URL}/stream`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: buildSessionBody(entry, false),
-    });
-
-    const response = await stub.fetch(doRequest);
+    const response = await this.fetchViaWorker(entry, '/api/v1/chat/stream');
     if (!response.ok || !response.body) {
       const errorText = response.body ? await response.text() : 'No response body';
-      throw new Error(`UserSession stream returned ${response.status}: ${errorText}`);
+      throw new Error(`Worker stream returned ${response.status}: ${errorText}`);
     }
     return response;
   }
@@ -630,9 +624,20 @@ export class UserQueue {
     await this.state.storage.put(Object.fromEntries(entries));
   }
 
-  private getUserSessionStub(entry: QueueEntry): DurableObjectStub {
-    const doId = this.env.USER_SESSION.idFromName(`user:${entry.org}:${entry.user_id}`);
-    return this.env.USER_SESSION.get(doId);
+  private async fetchViaWorker(entry: QueueEntry, path: string): Promise<Response> {
+    const origin = entry._worker_origin;
+    if (!origin) {
+      throw new Error('Missing _worker_origin — entry was enqueued before this fix');
+    }
+
+    return globalThis.fetch(`${origin}${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.env.BARUCH_API_KEY}`,
+      },
+      body: buildSessionBody(entry, path === '/api/v1/chat'),
+    });
   }
 
   private async handleProcessingError(
