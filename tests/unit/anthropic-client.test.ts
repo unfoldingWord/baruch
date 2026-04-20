@@ -9,7 +9,6 @@ vi.stubGlobal('fetch', vi.fn());
 
 const baseParams: ClaudeRequestParams = {
   model: 'claude-sonnet-4-6',
-  maxTokens: 1024,
   system: 'You are helpful.',
   messages: [{ role: 'user', content: 'Hi' }],
   tools: [],
@@ -19,7 +18,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe('callClaudeRaw', () => {
+describe('callClaudeRaw request shape', () => {
   it('sends correct headers and body', async () => {
     const msg = {
       id: 'msg_1',
@@ -42,7 +41,7 @@ describe('callClaudeRaw', () => {
     expect(headers['anthropic-version']).toBe('2023-06-01');
     const body = JSON.parse(init!.body as string);
     expect(body.stream).toBe(false);
-    expect(body.max_tokens).toBe(1024);
+    expect(body.max_tokens).toBe(64000);
   });
 
   it('returns parsed message', async () => {
@@ -61,7 +60,9 @@ describe('callClaudeRaw', () => {
     const result = await callClaudeRaw(baseParams, 'key');
     expect(result.content[0]).toEqual({ type: 'text', text: 'Hello' });
   });
+});
 
+describe('callClaudeRaw error handling', () => {
   it('throws ClaudeAPIError on non-ok response', async () => {
     const errorBody = { error: { message: 'Rate limited' } };
     vi.mocked(fetch).mockResolvedValue(

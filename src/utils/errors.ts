@@ -34,6 +34,16 @@ export class ValidationError extends AppError {
   }
 }
 
+export class ToolInputError extends AppError {
+  constructor(
+    public readonly toolName: string,
+    public readonly reason: string
+  ) {
+    super(`${toolName}: ${reason}`, 'TOOL_INPUT_ERROR', 400);
+    this.name = 'ToolInputError';
+  }
+}
+
 export class ClaudeAPIError extends AppError {
   constructor(
     message: string,

@@ -6,7 +6,6 @@ export interface Env {
 
   // Claude configuration (optional - has defaults)
   CLAUDE_MODEL?: string;
-  CLAUDE_MAX_TOKENS?: string;
 
   // Secrets (set via wrangler secret put)
   ANTHROPIC_API_KEY: string;

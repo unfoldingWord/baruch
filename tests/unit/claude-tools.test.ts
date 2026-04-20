@@ -8,6 +8,9 @@ import {
   isUpdateMemoryInput,
   isAdminToolInput,
   isSetPromptOverridesInput,
+  validateCreateOrUpdateModeInput,
+  validateNameOnlyInput,
+  validateSetMcpServersInput,
 } from '../../src/services/claude/tools.js';
 
 describe('buildAllTools', () => {
@@ -249,5 +252,134 @@ describe('isAdminToolInput', () => {
     expect(isAdminToolInput(null)).toBe(false);
     expect(isAdminToolInput([])).toBe(false);
     expect(isAdminToolInput('string')).toBe(false);
+  });
+});
+
+describe('validateCreateOrUpdateModeInput accepts', () => {
+  it('accepts valid input', () => {
+    const r = validateCreateOrUpdateModeInput({
+      name: 'mast',
+      label: 'MAST',
+      description: 'desc',
+      overrides: { identity: 'hi', methodology: null },
+    });
+    expect(r.ok).toBe(true);
+  });
+});
+
+describe('validateCreateOrUpdateModeInput rejects name issues', () => {
+  it('rejects missing name', () => {
+    const r = validateCreateOrUpdateModeInput({ overrides: { identity: 'hi' } });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/name/);
+  });
+
+  it('rejects empty name', () => {
+    const r = validateCreateOrUpdateModeInput({ name: '', overrides: { identity: 'hi' } });
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe('validateCreateOrUpdateModeInput rejects overrides issues', () => {
+  it('rejects missing overrides', () => {
+    const r = validateCreateOrUpdateModeInput({ name: 'mast' });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/overrides/);
+  });
+
+  it('rejects non-object overrides', () => {
+    const r = validateCreateOrUpdateModeInput({ name: 'mast', overrides: 'bad' });
+    expect(r.ok).toBe(false);
+  });
+
+  it('rejects unknown slot in overrides', () => {
+    const r = validateCreateOrUpdateModeInput({
+      name: 'mast',
+      overrides: { bogus_slot: 'x' },
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/bogus_slot/);
+  });
+
+  it('rejects non-string override value', () => {
+    const r = validateCreateOrUpdateModeInput({
+      name: 'mast',
+      overrides: { identity: 42 },
+    });
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe('validateCreateOrUpdateModeInput rejects other issues', () => {
+  it('rejects non-string label', () => {
+    const r = validateCreateOrUpdateModeInput({
+      name: 'mast',
+      label: 99,
+      overrides: { identity: 'hi' },
+    });
+    expect(r.ok).toBe(false);
+  });
+
+  it('rejects empty input (catches max_tokens truncation case)', () => {
+    const r = validateCreateOrUpdateModeInput({});
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/name/);
+  });
+
+  it('rejects non-object inputs', () => {
+    expect(validateCreateOrUpdateModeInput(null).ok).toBe(false);
+    expect(validateCreateOrUpdateModeInput([]).ok).toBe(false);
+    expect(validateCreateOrUpdateModeInput('str').ok).toBe(false);
+  });
+});
+
+describe('validateNameOnlyInput', () => {
+  it('accepts valid name', () => {
+    expect(validateNameOnlyInput({ name: 'mast' }).ok).toBe(true);
+  });
+
+  it('rejects missing name', () => {
+    expect(validateNameOnlyInput({}).ok).toBe(false);
+  });
+
+  it('rejects empty name', () => {
+    expect(validateNameOnlyInput({ name: '' }).ok).toBe(false);
+  });
+
+  it('rejects non-string name', () => {
+    expect(validateNameOnlyInput({ name: 123 }).ok).toBe(false);
+  });
+});
+
+describe('validateSetMcpServersInput', () => {
+  it('accepts valid servers array', () => {
+    const r = validateSetMcpServersInput({
+      servers: [{ id: 's1', url: 'https://x' }],
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  it('accepts empty servers array', () => {
+    expect(validateSetMcpServersInput({ servers: [] }).ok).toBe(true);
+  });
+
+  it('rejects missing servers', () => {
+    expect(validateSetMcpServersInput({}).ok).toBe(false);
+  });
+
+  it('rejects non-array servers', () => {
+    expect(validateSetMcpServersInput({ servers: 'bad' }).ok).toBe(false);
+  });
+
+  it('rejects server item missing id', () => {
+    const r = validateSetMcpServersInput({ servers: [{ url: 'https://x' }] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/id/);
+  });
+
+  it('rejects server item missing url', () => {
+    const r = validateSetMcpServersInput({ servers: [{ id: 's1' }] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/url/);
   });
 });

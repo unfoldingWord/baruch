@@ -398,3 +398,93 @@ export function isSetPromptOverridesInput(input: unknown): input is Record<strin
     ([key, val]) => VALID_SLOTS.has(key) && (typeof val === 'string' || val === null)
   );
 }
+
+export type ValidatorResult = { ok: true } | { ok: false; reason: string };
+
+function validateNonEmptyString(obj: Record<string, unknown>, field: string): string | null {
+  // eslint-disable-next-line security/detect-object-injection -- field is a hardcoded literal
+  const v = obj[field];
+  if (typeof v !== 'string') return `missing or non-string field '${field}'`;
+  if (v.length === 0) return `field '${field}' must not be empty`;
+  return null;
+}
+
+function validateOptionalString(obj: Record<string, unknown>, field: string): string | null {
+  if (!(field in obj)) return null;
+  // eslint-disable-next-line security/detect-object-injection -- field is a hardcoded literal
+  const v = obj[field];
+  if (v === undefined || v === null) return null;
+  if (typeof v !== 'string') return `field '${field}' must be a string when provided`;
+  return null;
+}
+
+function validateOverridesObject(obj: Record<string, unknown>): string | null {
+  const overrides = obj.overrides;
+  if (typeof overrides !== 'object' || overrides === null || Array.isArray(overrides)) {
+    return "missing or invalid 'overrides' object";
+  }
+  for (const [key, val] of Object.entries(overrides as Record<string, unknown>)) {
+    if (!VALID_SLOTS.has(key)) {
+      return `invalid override slot '${key}' (valid: ${Array.from(VALID_SLOTS).join(', ')})`;
+    }
+    if (typeof val !== 'string' && val !== null) {
+      return `override slot '${key}' must be a string or null`;
+    }
+  }
+  return null;
+}
+
+/** Validator for create_or_update_mode tool input */
+export function validateCreateOrUpdateModeInput(input: unknown): ValidatorResult {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    return { ok: false, reason: 'input must be an object' };
+  }
+  const obj = input as Record<string, unknown>;
+  const nameErr = validateNonEmptyString(obj, 'name');
+  if (nameErr) return { ok: false, reason: nameErr };
+  const labelErr = validateOptionalString(obj, 'label');
+  if (labelErr) return { ok: false, reason: labelErr };
+  const descErr = validateOptionalString(obj, 'description');
+  if (descErr) return { ok: false, reason: descErr };
+  const ovErr = validateOverridesObject(obj);
+  if (ovErr) return { ok: false, reason: ovErr };
+  return { ok: true };
+}
+
+/** Validator for get_mode / delete_mode tool input (requires non-empty name) */
+export function validateNameOnlyInput(input: unknown): ValidatorResult {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    return { ok: false, reason: 'input must be an object' };
+  }
+  const err = validateNonEmptyString(input as Record<string, unknown>, 'name');
+  return err ? { ok: false, reason: err } : { ok: true };
+}
+
+function validateMcpServerItem(item: unknown, index: number): string | null {
+  if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+    return `servers[${index}] must be an object`;
+  }
+  const obj = item as Record<string, unknown>;
+  const idErr = validateNonEmptyString(obj, 'id');
+  if (idErr) return `servers[${index}].${idErr}`;
+  const urlErr = validateNonEmptyString(obj, 'url');
+  if (urlErr) return `servers[${index}].${urlErr}`;
+  return null;
+}
+
+/** Validator for set_mcp_servers tool input */
+export function validateSetMcpServersInput(input: unknown): ValidatorResult {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    return { ok: false, reason: 'input must be an object' };
+  }
+  const servers = (input as Record<string, unknown>).servers;
+  if (!Array.isArray(servers)) {
+    return { ok: false, reason: "missing or non-array field 'servers'" };
+  }
+  for (let i = 0; i < servers.length; i++) {
+    // eslint-disable-next-line security/detect-object-injection -- i is a loop index
+    const err = validateMcpServerItem(servers[i], i);
+    if (err) return { ok: false, reason: err };
+  }
+  return { ok: true };
+}
