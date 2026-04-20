@@ -13,6 +13,36 @@ export interface AdminApiClientConfig {
   logger: RequestLogger;
 }
 
+function extractBodyKeys(body: unknown): string[] {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return [];
+  return Object.keys(body as Record<string, unknown>);
+}
+
+function hasNullishPathSegment(path: string): boolean {
+  return /\/(undefined|null)(\/|$|\?)/.test(path);
+}
+
+async function handleNonOkResponse(
+  response: Response,
+  method: string,
+  path: string,
+  duration: number,
+  logger: RequestLogger
+): Promise<never> {
+  const errorBody = await response.text();
+  logger.error('admin_api_error', new Error(errorBody), {
+    method,
+    path,
+    status: response.status,
+    duration_ms: duration,
+    response_body: errorBody.slice(0, 1024),
+  });
+  throw new AdminApiError(
+    `Admin API ${method} ${path} returned ${response.status}: ${errorBody}`,
+    response.status
+  );
+}
+
 export class AdminApiClient {
   constructor(private config: AdminApiClientConfig) {}
 
@@ -31,34 +61,37 @@ export class AdminApiClient {
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const url = `${this.config.baseUrl}${path}`;
     const startTime = Date.now();
+    const bodyString = body !== undefined ? JSON.stringify(body) : null;
+    const nullishPath = hasNullishPathSegment(path);
 
-    this.config.logger.log('admin_api_request', { method, path });
+    this.config.logger.log('admin_api_request', {
+      method,
+      path,
+      body_keys: extractBodyKeys(body),
+      body_size_bytes: bodyString?.length ?? 0,
+      has_undefined_path_segment: nullishPath,
+    });
 
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${this.config.apiKey}`,
-      'Content-Type': 'application/json',
-    };
+    if (nullishPath) {
+      throw new AdminApiError(
+        `Admin API ${method} ${path} rejected: path contains literal "undefined" or "null" segment (caller passed a nullish path parameter)`,
+        400
+      );
+    }
 
     const response = await fetch(url, {
       method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : null,
+      headers: {
+        Authorization: `Bearer ${this.config.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: bodyString,
     });
 
     const duration = Date.now() - startTime;
 
     if (!response.ok) {
-      const errorBody = await response.text();
-      this.config.logger.error('admin_api_error', new Error(errorBody), {
-        method,
-        path,
-        status: response.status,
-        duration_ms: duration,
-      });
-      throw new AdminApiError(
-        `Admin API ${method} ${path} returned ${response.status}: ${errorBody}`,
-        response.status
-      );
+      return handleNonOkResponse(response, method, path, duration, this.config.logger);
     }
 
     this.config.logger.log('admin_api_response', {

@@ -80,10 +80,10 @@ describe('AdminApiClient logging', () => {
   it('logs request and response', async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({})));
     await client.get('/test');
-    expect(mockLogger.log).toHaveBeenCalledWith('admin_api_request', {
-      method: 'GET',
-      path: '/test',
-    });
+    expect(mockLogger.log).toHaveBeenCalledWith(
+      'admin_api_request',
+      expect.objectContaining({ method: 'GET', path: '/test' })
+    );
     expect(mockLogger.log).toHaveBeenCalledWith(
       'admin_api_response',
       expect.objectContaining({ method: 'GET', path: '/test', status: 200 })
@@ -94,5 +94,57 @@ describe('AdminApiClient logging', () => {
     vi.mocked(fetch).mockResolvedValue(new Response('Server error', { status: 500 }));
     await expect(client.get('/fail')).rejects.toThrow();
     expect(mockLogger.error).toHaveBeenCalled();
+  });
+
+  it('includes response_body on admin_api_error', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response('{"error":"bad body"}', { status: 400 }));
+    await expect(client.put('/oops', { x: 1 })).rejects.toThrow();
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      'admin_api_error',
+      expect.any(Error),
+      expect.objectContaining({ status: 400, response_body: '{"error":"bad body"}' })
+    );
+  });
+});
+
+describe('AdminApiClient path-segment guard', () => {
+  it('rejects requests where a path param stringifies to "undefined"', async () => {
+    await expect(
+      client.put('/api/v1/admin/orgs/acme/modes/undefined', { overrides: {} })
+    ).rejects.toThrow(/undefined/);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects requests where a path param stringifies to "null"', async () => {
+    await expect(client.get('/api/v1/admin/orgs/acme/modes/null')).rejects.toThrow(/null/);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('allows paths that legitimately contain "undefined" or "null" as substrings', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response('{}'));
+    // e.g. mode slug "nullable-test" should be allowed
+    await client.get('/api/v1/admin/orgs/acme/modes/nullable-test');
+    expect(fetch).toHaveBeenCalled();
+  });
+
+  it('logs has_undefined_path_segment=true on admin_api_request for malformed paths', async () => {
+    await expect(client.get('/foo/undefined')).rejects.toThrow();
+    expect(mockLogger.log).toHaveBeenCalledWith(
+      'admin_api_request',
+      expect.objectContaining({ has_undefined_path_segment: true })
+    );
+  });
+
+  it('logs body_keys and body_size_bytes for PUT', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response('{}'));
+    await client.put('/thing', { a: 1, b: 'two' });
+    expect(mockLogger.log).toHaveBeenCalledWith(
+      'admin_api_request',
+      expect.objectContaining({
+        method: 'PUT',
+        body_keys: ['a', 'b'],
+        body_size_bytes: JSON.stringify({ a: 1, b: 'two' }).length,
+      })
+    );
   });
 });

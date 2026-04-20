@@ -392,6 +392,124 @@ describe('orchestrate Baruch MCP tools use session org', () => {
   });
 });
 
+describe('orchestrate duplicate-failure short-circuit', () => {
+  it('short-circuits when Claude repeats the identical failing tool call', async () => {
+    // Both fetch calls return 400 (same failure for same call)
+    vi.mocked(fetch).mockResolvedValue(new Response('bad body', { status: 400 }));
+    // Claude keeps emitting the same get_mode call with the same input
+    mockCallClaudeRaw
+      .mockResolvedValueOnce(toolUseResponse('get_mode', { name: 'x' }))
+      .mockResolvedValueOnce(toolUseResponse('get_mode', { name: 'x' }))
+      // This third call would produce text if the loop didn't break; if we get here the test should still pass
+      .mockResolvedValue(textResponse('fallback'));
+
+    const options = buildOptions();
+    options.env.MAX_ORCHESTRATION_ITERATIONS = '10';
+    const result = await orchestrate('test', options);
+
+    // Should stop after the duplicate is detected on iteration 2
+    expect(mockCallClaudeRaw).toHaveBeenCalledTimes(2);
+    expect(result.some((r) => r.includes('same tool call kept failing'))).toBe(true);
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'tool_call_duplicate_skipped',
+      expect.objectContaining({ tool_name: 'get_mode' })
+    );
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'orchestration_stopped_duplicate_failures',
+      expect.any(Object)
+    );
+  });
+
+  it('does NOT short-circuit if Claude changes the input on retry', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response('bad', { status: 400 }));
+    mockCallClaudeRaw
+      .mockResolvedValueOnce(toolUseResponse('get_mode', { name: 'foo' }))
+      .mockResolvedValueOnce(toolUseResponse('get_mode', { name: 'bar' }))
+      .mockResolvedValueOnce(textResponse('giving up'));
+
+    const result = await orchestrate('test', buildOptions());
+    expect(result).toEqual(['giving up']);
+    // Got to third iteration because inputs were different
+    expect(mockCallClaudeRaw).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('orchestrate validation before admin PUT', () => {
+  it('rejects create_or_update_mode with missing name (truncation case)', async () => {
+    mockCallClaudeRaw
+      .mockResolvedValueOnce(toolUseResponse('create_or_update_mode', {}))
+      .mockResolvedValueOnce(textResponse('ok'));
+
+    await orchestrate('test', buildOptions({ isAdmin: true }));
+
+    // No admin API call should have been made
+    expect(fetch).not.toHaveBeenCalled();
+    // Tool result sent back to Claude should be an error
+    const params = mockCallClaudeRaw.mock.calls[1][0];
+    const lastMsg = params.messages[params.messages.length - 1];
+    expect(lastMsg.content[0].is_error).toBe(true);
+    expect(lastMsg.content[0].content).toContain('create_or_update_mode');
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'tool_input_validation_failed',
+      expect.objectContaining({ tool_name: 'create_or_update_mode' })
+    );
+  });
+
+  it('rejects get_mode with missing name', async () => {
+    mockCallClaudeRaw
+      .mockResolvedValueOnce(toolUseResponse('get_mode', {}))
+      .mockResolvedValueOnce(textResponse('ok'));
+
+    await orchestrate('test', buildOptions());
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('orchestrate claude_response logging includes usage', () => {
+  it('logs input_tokens, output_tokens, and model on claude_response', async () => {
+    mockCallClaudeRaw.mockResolvedValue({
+      content: [{ type: 'text', text: 'hi' }],
+      stop_reason: 'end_turn',
+      model: 'claude-sonnet-4-6',
+      id: 'msg_1',
+      type: 'message',
+      role: 'assistant',
+      usage: {
+        input_tokens: 123,
+        output_tokens: 45,
+        cache_creation_input_tokens: 7,
+        cache_read_input_tokens: 9,
+      },
+    });
+    await orchestrate('hi', buildOptions());
+    expect(mockLogger.log).toHaveBeenCalledWith(
+      'claude_response',
+      expect.objectContaining({
+        model: 'claude-sonnet-4-6',
+        input_tokens: 123,
+        output_tokens: 45,
+        cache_creation_input_tokens: 7,
+        cache_read_input_tokens: 9,
+      })
+    );
+  });
+
+  it('warns claude_stream_truncated when stop_reason is max_tokens', async () => {
+    mockCallClaudeRaw
+      .mockResolvedValueOnce({
+        ...toolUseResponse('get_mode', {}),
+        stop_reason: 'max_tokens',
+      })
+      .mockResolvedValueOnce(textResponse('recovered'));
+
+    await orchestrate('test', buildOptions());
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'claude_stream_truncated',
+      expect.objectContaining({ tool_calls_count: 1 })
+    );
+  });
+});
+
 describe('orchestrate MCP tool dispatch', () => {
   it('dispatches MCP tool calls to the MCP server', async () => {
     vi.mocked(fetch).mockResolvedValue(
