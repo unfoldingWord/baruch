@@ -434,6 +434,40 @@ describe('orchestrate duplicate-failure short-circuit', () => {
   });
 });
 
+describe('orchestrate transient-failure retry', () => {
+  it('does NOT short-circuit after a transient 5xx — lets Claude retry', async () => {
+    // First call: bt-servant 503. Second call: recovered (200).
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response('overloaded', { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ name: 'x' })));
+    mockCallClaudeRaw
+      .mockResolvedValueOnce(toolUseResponse('get_mode', { name: 'x' }))
+      .mockResolvedValueOnce(toolUseResponse('get_mode', { name: 'x' }))
+      .mockResolvedValueOnce(textResponse('got it'));
+
+    const result = await orchestrate('test', buildOptions());
+    expect(result).toEqual(['got it']);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(mockLogger.warn).not.toHaveBeenCalledWith(
+      'tool_call_duplicate_skipped',
+      expect.any(Object)
+    );
+  });
+
+  it('does NOT short-circuit after a transient 429 rate-limit', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response('rate limited', { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })));
+    mockCallClaudeRaw
+      .mockResolvedValueOnce(toolUseResponse('get_mode', { name: 'x' }))
+      .mockResolvedValueOnce(toolUseResponse('get_mode', { name: 'x' }))
+      .mockResolvedValueOnce(textResponse('done'));
+
+    await orchestrate('test', buildOptions());
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('orchestrate validation before admin PUT', () => {
   it('rejects create_or_update_mode with missing name (truncation case)', async () => {
     mockCallClaudeRaw

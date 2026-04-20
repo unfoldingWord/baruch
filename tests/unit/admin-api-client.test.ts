@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AdminApiClient } from '../../src/services/admin-api/client.js';
+import { AdminApiClient, encodePathParam } from '../../src/services/admin-api/client.js';
 import { AdminApiError } from '../../src/utils/errors.js';
 
 const mockLogger = {
@@ -107,34 +107,7 @@ describe('AdminApiClient logging', () => {
   });
 });
 
-describe('AdminApiClient path-segment guard', () => {
-  it('rejects requests where a path param stringifies to "undefined"', async () => {
-    await expect(
-      client.put('/api/v1/admin/orgs/acme/modes/undefined', { overrides: {} })
-    ).rejects.toThrow(/undefined/);
-    expect(fetch).not.toHaveBeenCalled();
-  });
-
-  it('rejects requests where a path param stringifies to "null"', async () => {
-    await expect(client.get('/api/v1/admin/orgs/acme/modes/null')).rejects.toThrow(/null/);
-    expect(fetch).not.toHaveBeenCalled();
-  });
-
-  it('allows paths that legitimately contain "undefined" or "null" as substrings', async () => {
-    vi.mocked(fetch).mockResolvedValue(new Response('{}'));
-    // e.g. mode slug "nullable-test" should be allowed
-    await client.get('/api/v1/admin/orgs/acme/modes/nullable-test');
-    expect(fetch).toHaveBeenCalled();
-  });
-
-  it('logs has_undefined_path_segment=true on admin_api_request for malformed paths', async () => {
-    await expect(client.get('/foo/undefined')).rejects.toThrow();
-    expect(mockLogger.log).toHaveBeenCalledWith(
-      'admin_api_request',
-      expect.objectContaining({ has_undefined_path_segment: true })
-    );
-  });
-
+describe('AdminApiClient body logging', () => {
   it('logs body_keys and body_size_bytes for PUT', async () => {
     vi.mocked(fetch).mockResolvedValue(new Response('{}'));
     await client.put('/thing', { a: 1, b: 'two' });
@@ -146,5 +119,43 @@ describe('AdminApiClient path-segment guard', () => {
         body_size_bytes: JSON.stringify({ a: 1, b: 'two' }).length,
       })
     );
+  });
+
+  it('does not reject slugs literally named "null" or "undefined"', async () => {
+    // If a caller really wants to address a resource whose slug is "null" or
+    // "undefined", the client itself must not reserve those names.
+    vi.mocked(fetch).mockImplementation(async () => new Response('{}'));
+    await client.get('/api/v1/admin/orgs/acme/modes/null');
+    await client.get('/api/v1/admin/orgs/acme/modes/undefined');
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('encodePathParam', () => {
+  it('URL-encodes a valid non-empty string', () => {
+    expect(encodePathParam('acme', 'org')).toBe('acme');
+    expect(encodePathParam('slug with space', 'name')).toBe('slug%20with%20space');
+  });
+
+  it('accepts the literal strings "null" and "undefined" as valid slugs', () => {
+    expect(encodePathParam('null', 'name')).toBe('null');
+    expect(encodePathParam('undefined', 'name')).toBe('undefined');
+  });
+
+  it('rejects undefined', () => {
+    expect(() => encodePathParam(undefined, 'name')).toThrow(AdminApiError);
+    expect(() => encodePathParam(undefined, 'name')).toThrow(/name/);
+  });
+
+  it('rejects null', () => {
+    expect(() => encodePathParam(null, 'name')).toThrow(AdminApiError);
+  });
+
+  it('rejects empty string', () => {
+    expect(() => encodePathParam('', 'name')).toThrow(AdminApiError);
+  });
+
+  it('rejects non-string values', () => {
+    expect(() => encodePathParam(42, 'name')).toThrow(AdminApiError);
   });
 });

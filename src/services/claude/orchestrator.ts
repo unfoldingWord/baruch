@@ -20,7 +20,13 @@ import {
   validatePromptOverrides,
 } from '../../types/prompt-overrides.js';
 import { AdminApiClient } from '../admin-api/index.js';
-import { ClaudeAPIError, MCPError, ToolInputError, ValidationError } from '../../utils/errors.js';
+import {
+  AdminApiError,
+  ClaudeAPIError,
+  MCPError,
+  ToolInputError,
+  ValidationError,
+} from '../../utils/errors.js';
 import { RequestLogger } from '../../utils/logger.js';
 import { MAX_MEMORY_SIZE_BYTES, UserMemoryStore } from '../memory/index.js';
 import {
@@ -377,6 +383,24 @@ function handleToolSuccess(
   };
 }
 
+/**
+ * Classify a thrown tool-execution error as deterministic (identical retry will
+ * also fail) vs transient (worth letting the model retry). Only deterministic
+ * errors go into the duplicate-signature cache — we want to break the demo-time
+ * 4xx doom loop without suppressing legitimate retries after a bt-servant 5xx,
+ * MCP outage, or network blip.
+ */
+function isDeterministicFailure(error: unknown): boolean {
+  if (error instanceof ToolInputError) return true;
+  if (error instanceof ValidationError) return true;
+  if (error instanceof AdminApiError) {
+    const status = error.apiStatusCode;
+    // Treat 4xx (except 429) as deterministic; 5xx and 429 may succeed on retry.
+    return typeof status === 'number' && status >= 400 && status < 500 && status !== 429;
+  }
+  return false;
+}
+
 function handleToolError(
   toolCall: ToolUseBlock,
   signature: string,
@@ -385,11 +409,13 @@ function handleToolError(
   ctx: OrchestrationContext
 ): ExecutionOutcome {
   const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-  ctx.failedToolSignatures.set(signature, errorMessage);
+  const deterministic = isDeterministicFailure(error);
+  if (deterministic) ctx.failedToolSignatures.set(signature, errorMessage);
   ctx.logger.error('tool_execution_error', error, {
     tool_name: toolCall.name,
     tool_id: toolCall.id,
     duration_ms: durationMs,
+    deterministic,
   });
   ctx.callbacks?.onToolResult?.(toolCall.name, { error: errorMessage });
   return {

@@ -18,8 +18,20 @@ function extractBodyKeys(body: unknown): string[] {
   return Object.keys(body as Record<string, unknown>);
 }
 
-function hasNullishPathSegment(path: string): boolean {
-  return /\/(undefined|null)(\/|$|\?)/.test(path);
+/**
+ * Encode a value as a URL path segment, rejecting nullish/non-string values at the
+ * call site. Prevents `${undefined}` from being stringified into a request URL
+ * (the original demo-incident symptom) without making "null" or "undefined" into
+ * reserved slug names at the URL layer.
+ */
+export function encodePathParam(value: unknown, paramName: string): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new AdminApiError(
+      `Admin API path parameter "${paramName}" must be a non-empty string (got ${value === undefined ? 'undefined' : value === null ? 'null' : typeof value})`,
+      400
+    );
+  }
+  return encodeURIComponent(value);
 }
 
 async function handleNonOkResponse(
@@ -62,22 +74,13 @@ export class AdminApiClient {
     const url = `${this.config.baseUrl}${path}`;
     const startTime = Date.now();
     const bodyString = body !== undefined ? JSON.stringify(body) : null;
-    const nullishPath = hasNullishPathSegment(path);
 
     this.config.logger.log('admin_api_request', {
       method,
       path,
       body_keys: extractBodyKeys(body),
       body_size_bytes: bodyString?.length ?? 0,
-      has_undefined_path_segment: nullishPath,
     });
-
-    if (nullishPath) {
-      throw new AdminApiError(
-        `Admin API ${method} ${path} rejected: path contains literal "undefined" or "null" segment (caller passed a nullish path parameter)`,
-        400
-      );
-    }
 
     const response = await fetch(url, {
       method,

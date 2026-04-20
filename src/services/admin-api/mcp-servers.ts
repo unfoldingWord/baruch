@@ -2,10 +2,10 @@
  * Admin API client functions for MCP server management
  */
 
-import { AdminApiClient } from './client.js';
+import { AdminApiClient, encodePathParam } from './client.js';
 
 export async function listMcpServers(client: AdminApiClient, org: string): Promise<unknown> {
-  return client.get(`/api/v1/admin/orgs/${encodeURIComponent(org)}/mcp-servers`);
+  return client.get(`/api/v1/admin/orgs/${encodePathParam(org, 'org')}/mcp-servers`);
 }
 
 export async function setMcpServers(
@@ -13,5 +13,5 @@ export async function setMcpServers(
   org: string,
   servers: unknown[]
 ): Promise<unknown> {
-  return client.put(`/api/v1/admin/orgs/${encodeURIComponent(org)}/mcp-servers`, servers);
+  return client.put(`/api/v1/admin/orgs/${encodePathParam(org, 'org')}/mcp-servers`, servers);
 }
