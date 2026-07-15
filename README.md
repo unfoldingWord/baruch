@@ -119,8 +119,8 @@ The tool-use loop (max iterations set by `MAX_ORCHESTRATION_ITERATIONS`, default
 
 ### Prerequisites
 
-- Node.js >= 20
-- pnpm >= 9
+- Node.js >= 22.13
+- pnpm >= 11
 - Cloudflare account with Workers, KV, and Durable Objects
 
 ### Setup
