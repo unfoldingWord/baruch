@@ -48,7 +48,9 @@ All `/api/*` routes require `Authorization: Bearer <BARUCH_API_KEY>`.
 | `POST` | `/api/v1/chat/stream`        | Streaming chat (SSE response)                |
 | `POST` | `/api/v1/chat/initiate`      | Opening message (SSE, cached after first)    |
 | `POST` | `/api/v1/chat/queue`         | Enqueue message (SSE stream or 202 callback) |
-| `GET`  | `/api/v1/chat/queue/:userId` | Queue status                                 |
+| `GET`  | `/api/v1/chat/queue/:userId` | Queue status (`?org=` optional)              |
+
+Chat requests carry `user_id`, `client_id`, and `message`, plus optional `org`/`org_id` (falls back to `DEFAULT_ORG`) and `is_admin` (asserted by the upstream caller — gates admin-only tools). When `progress_callback_url` is set, the queue endpoint returns `202` and delivers progress via webhook using one of four `progress_mode` values: `complete`, `iteration` (default), `periodic` (with `progress_throttle_seconds`), or `sentence`. Without a callback URL, the queue endpoint streams SSE directly.
 
 ### User Data
 
@@ -90,7 +92,16 @@ All streaming endpoints emit `data: JSON\n\n` events:
 
 **MCP tools** (dynamic) -- discovered at chat time from configured MCP servers.
 
-Admin-only tools (`set_*`) are filtered from non-admin users at both the tool list and dispatch layers.
+Admin-only tools (the four `set_*` tools) are filtered from non-admin users at both the tool list and dispatch layers — non-admins get 10 tools.
+
+### Orchestration Safeguards
+
+The tool-use loop (max iterations set by `MAX_ORCHESTRATION_ITERATIONS`, default 10) hardens against bad tool calls:
+
+- **Input validation before dispatch** — `get_mode`, `create_or_update_mode`, `delete_mode`, and `set_mcp_servers` args are validated before hitting the admin API; nullish path params are rejected at the call site (`encodePathParam`)
+- **Duplicate-failure short-circuit** — deterministic failures (validation errors, admin API 4xx excluding 429) are tracked by tool-call signature; identical retries are skipped and the loop breaks when an iteration is all duplicates. Transient failures (5xx, 429, MCP/network errors) remain retryable
+- **Truncation detection** — `max_tokens` is pinned to the model's 64k output ceiling, and a `stop_reason: max_tokens` response logs a `claude_stream_truncated` warning
+- **Structured logging** — token usage, tool inputs, and admin API request/response details are logged per request for production diagnosis
 
 ## Prompt System
 
@@ -116,8 +127,8 @@ Admin-only tools (`set_*`) are filtered from non-admin users at both the tool li
 
 ```bash
 pnpm install
-cp .dev.vars.example .dev.vars  # Add your secrets
-pnpm dev                        # Start local dev server
+# Create .dev.vars with the secrets listed below (KEY=value per line)
+pnpm dev   # Start local dev server
 ```
 
 ### Required Secrets
@@ -130,6 +141,17 @@ Set via `wrangler secret put <name>` or in `.dev.vars` for local dev:
 | `BARUCH_API_KEY`    | Service authentication key |
 | `ENGINE_API_KEY`    | bt-servant-worker API key  |
 | `ENGINE_BASE_URL`   | bt-servant-worker base URL |
+
+### Configuration Variables
+
+Non-secret vars set in `wrangler.toml` (per environment):
+
+| Variable                       | Default             | Description                            |
+| ------------------------------ | ------------------- | -------------------------------------- |
+| `ENVIRONMENT`                  | `production`        | Environment name                       |
+| `MAX_ORCHESTRATION_ITERATIONS` | `10`                | Max tool-use loop iterations           |
+| `DEFAULT_ORG`                  | `unfoldingWord`     | Org used when requests omit `org`      |
+| `CLAUDE_MODEL`                 | `claude-sonnet-4-6` | Model override (optional, not in TOML) |
 
 ### Scripts
 
@@ -204,17 +226,17 @@ src/
 
 ## Environments
 
-| Environment | Worker Name      | Deploy Trigger              |
-| ----------- | ---------------- | --------------------------- |
-| dev         | `baruch-dev`     | Auto on PR to main          |
-| staging     | `baruch-staging` | Auto when CI passes on main |
-| production  | `baruch`         | Manual dispatch only        |
+| Environment | Worker Name      | Deploy Trigger                          |
+| ----------- | ---------------- | --------------------------------------- |
+| dev         | `baruch-dev`     | Auto on PR to main (or manual dispatch) |
+| staging     | `baruch-staging` | Auto when CI passes on main             |
+| production  | `baruch`         | Manual dispatch only                    |
 
 ## CI/CD
 
 GitHub Actions pipeline on every push/PR to main:
 
-1. **Security audit** -- `pnpm audit --prod`
+1. **Security audit** -- `pnpm audit --prod` (hard fail) + full-tree audit (informational)
 2. **Lint** -- format check + ESLint
 3. **Type check** -- `tsc --noEmit`
 4. **Architecture** -- dependency-cruiser validation
