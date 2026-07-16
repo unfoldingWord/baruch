@@ -15,8 +15,10 @@ import { parseSSEStream } from './sse-parser.js';
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
 
-// Synchronous Messages API ceiling for claude-sonnet-4-6 (and claude-haiku-4-5).
-// Opus 4.7 supports 128k; bump this if we switch models.
+// Output-token ceiling. claude-opus-4-8 supports up to 128k, but values
+// that large require streaming to avoid HTTP timeouts on the synchronous
+// path — 64k is safe for both call modes and for any CLAUDE_MODEL
+// override down to claude-haiku-4-5 (whose hard cap is 64k).
 const MODEL_MAX_OUTPUT_TOKENS = 64000;
 
 export interface ClaudeRequestParams {

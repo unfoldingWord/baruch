@@ -63,7 +63,11 @@ import {
   setMcpServers,
 } from '../admin-api/index.js';
 
-const DEFAULT_MODEL = 'claude-sonnet-4-6';
+// #254 — Opus for the rulebook-transfer / response-shaping loop (team
+// decision: only Opus-tier reliably authors refined rulebooks; Sonnet
+// could not, even for itself). Baruch's usage is low, so the cost
+// delta is bounded. Overridable per-env via CLAUDE_MODEL.
+const DEFAULT_MODEL = 'claude-opus-4-8';
 const DEFAULT_MAX_ITERATIONS = 10;
 const MAX_ERROR_INPUT_LENGTH = 100;
 
