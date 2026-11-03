@@ -11,6 +11,9 @@ export interface Env {
   ANTHROPIC_API_KEY: string;
   BARUCH_API_KEY: string;
   ENGINE_API_KEY: string;
+  // Optional dedicated key for bt-servant-worker's admin API. Falls back to
+  // ENGINE_API_KEY when unset; read it via resolveAdminApiKey().
+  ADMIN_API_KEY?: string;
   ENGINE_BASE_URL: string;
 
   // KV Namespaces

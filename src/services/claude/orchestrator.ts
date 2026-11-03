@@ -19,7 +19,7 @@ import {
   resolvePromptOverrides,
   validatePromptOverrides,
 } from '../../types/prompt-overrides.js';
-import { AdminApiClient } from '../admin-api/index.js';
+import { AdminApiClient, resolveAdminApiKey } from '../admin-api/index.js';
 import {
   AdminApiError,
   ClaudeAPIError,
@@ -251,7 +251,7 @@ function createOrchestrationContext(
 
   const adminClient = new AdminApiClient({
     baseUrl: env.ENGINE_BASE_URL,
-    apiKey: env.ENGINE_API_KEY,
+    apiKey: resolveAdminApiKey(env),
     logger,
   });
 

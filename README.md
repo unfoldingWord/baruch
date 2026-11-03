@@ -135,12 +135,13 @@ pnpm dev   # Start local dev server
 
 Set via `wrangler secret put <name>` or in `.dev.vars` for local dev:
 
-| Secret              | Description                |
-| ------------------- | -------------------------- |
-| `ANTHROPIC_API_KEY` | Anthropic API key          |
-| `BARUCH_API_KEY`    | Service authentication key |
-| `ENGINE_API_KEY`    | bt-servant-worker API key  |
-| `ENGINE_BASE_URL`   | bt-servant-worker base URL |
+| Secret              | Description                                                                |
+| ------------------- | -------------------------------------------------------------------------- |
+| `ANTHROPIC_API_KEY` | Anthropic API key                                                          |
+| `BARUCH_API_KEY`    | Service authentication key                                                 |
+| `ENGINE_API_KEY`    | bt-servant-worker API key                                                  |
+| `ADMIN_API_KEY`     | bt-servant-worker admin API key (optional; falls back to `ENGINE_API_KEY`) |
+| `ENGINE_BASE_URL`   | bt-servant-worker base URL                                                 |
 
 ### Configuration Variables
 

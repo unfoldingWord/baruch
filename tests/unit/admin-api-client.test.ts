@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AdminApiClient, encodePathParam } from '../../src/services/admin-api/client.js';
+import {
+  AdminApiClient,
+  encodePathParam,
+  resolveAdminApiKey,
+} from '../../src/services/admin-api/client.js';
 import { AdminApiError } from '../../src/utils/errors.js';
 
 const mockLogger = {
@@ -157,5 +161,20 @@ describe('encodePathParam', () => {
 
   it('rejects non-string values', () => {
     expect(() => encodePathParam(42, 'name')).toThrow(AdminApiError);
+  });
+});
+
+describe('resolveAdminApiKey', () => {
+  it('uses ADMIN_API_KEY when it is set', () => {
+    expect(resolveAdminApiKey({ ADMIN_API_KEY: 'admin', ENGINE_API_KEY: 'engine' })).toBe('admin');
+  });
+
+  it('falls back to ENGINE_API_KEY when ADMIN_API_KEY is unset', () => {
+    expect(resolveAdminApiKey({ ENGINE_API_KEY: 'engine' })).toBe('engine');
+  });
+
+  it('falls back to ENGINE_API_KEY when ADMIN_API_KEY is blank', () => {
+    expect(resolveAdminApiKey({ ADMIN_API_KEY: '', ENGINE_API_KEY: 'engine' })).toBe('engine');
+    expect(resolveAdminApiKey({ ADMIN_API_KEY: '  \n', ENGINE_API_KEY: 'engine' })).toBe('engine');
   });
 });

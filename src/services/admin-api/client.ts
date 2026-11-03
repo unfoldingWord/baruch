@@ -1,7 +1,8 @@
 /**
  * Generic HTTP client for bt-servant-worker admin API
  *
- * Wraps fetch with ENGINE_API_KEY auth and ENGINE_BASE_URL.
+ * Wraps fetch with admin API key auth (see resolveAdminApiKey) and
+ * ENGINE_BASE_URL.
  */
 
 import { AdminApiError } from '../../utils/errors.js';
@@ -11,6 +12,19 @@ export interface AdminApiClientConfig {
   baseUrl: string;
   apiKey: string;
   logger: RequestLogger;
+}
+
+/**
+ * The bearer key for bt-servant-worker's admin API: ADMIN_API_KEY when it is
+ * set to a non-blank value, otherwise ENGINE_API_KEY, so a deploy without the
+ * new secret keeps working.
+ */
+export function resolveAdminApiKey(env: {
+  ADMIN_API_KEY?: string;
+  ENGINE_API_KEY: string;
+}): string {
+  const adminKey = env.ADMIN_API_KEY;
+  return adminKey !== undefined && adminKey.trim() !== '' ? adminKey : env.ENGINE_API_KEY;
 }
 
 function extractBodyKeys(body: unknown): string[] {

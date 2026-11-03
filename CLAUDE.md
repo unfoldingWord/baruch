@@ -67,7 +67,7 @@ Single-tier override: admin KV overrides → hardcoded defaults (no user/mode hi
 
 ### Built-in Tools (14 total)
 
-**BT Servant admin API tools** (8) — calls bt-servant-worker via `ENGINE_API_KEY`:
+**BT Servant admin API tools** (8) — calls bt-servant-worker via `ADMIN_API_KEY` (falls back to `ENGINE_API_KEY` when unset):
 
 - Prompt overrides: get, set
 - Modes: list, get, create/update, delete
