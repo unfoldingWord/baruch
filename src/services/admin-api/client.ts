@@ -1,15 +1,18 @@
 /**
  * Generic HTTP client for bt-servant-worker admin API
  *
- * Wraps fetch with ENGINE_API_KEY auth and ENGINE_BASE_URL.
+ * Wraps fetch with admin API key auth (see src/config/admin-api-key.ts) and
+ * ENGINE_BASE_URL.
  */
 
-import { AdminApiError } from '../../utils/errors.js';
+import type { AdminApiKey, AdminApiKeySource } from '../../config/admin-api-key.js';
+import { AdminApiConfigError, AdminApiError } from '../../utils/errors.js';
 import { RequestLogger } from '../../utils/logger.js';
 
 export interface AdminApiClientConfig {
   baseUrl: string;
-  apiKey: string;
+  /** From resolveAdminApiKey(env) in src/config/admin-api-key.ts. */
+  apiKey: AdminApiKey;
   logger: RequestLogger;
 }
 
@@ -34,25 +37,49 @@ export function encodePathParam(value: unknown, paramName: string): string {
   return encodeURIComponent(value);
 }
 
-async function handleNonOkResponse(
-  response: Response,
-  method: string,
-  path: string,
+interface RequestContext {
+  method: string;
+  path: string;
+  logger: RequestLogger;
+  keySource: AdminApiKeySource;
+}
+
+function handleNonOkResponse(
+  status: number,
+  errorBody: string,
   duration: number,
-  logger: RequestLogger
-): Promise<never> {
-  const errorBody = await response.text();
+  ctx: RequestContext
+): never {
+  const { method, path, logger, keySource } = ctx;
   logger.error('admin_api_error', new Error(errorBody), {
     method,
     path,
-    status: response.status,
+    status,
+    key_source: keySource,
     duration_ms: duration,
     response_body: errorBody.slice(0, 1024),
   });
-  throw new AdminApiError(
-    `Admin API ${method} ${path} returned ${response.status}: ${errorBody}`,
-    response.status
-  );
+  throw new AdminApiError(`Admin API ${method} ${path} returned ${status}: ${errorBody}`, status);
+}
+
+type ConfiguredAdminApiKey = Extract<AdminApiKey, { key: string }>;
+
+/**
+ * The configured key, narrowed, or a clean AdminApiConfigError when neither
+ * ADMIN_API_KEY nor ENGINE_API_KEY is set (never send "Bearer undefined").
+ */
+function requireKey(
+  apiKey: AdminApiKey,
+  method: string,
+  path: string,
+  logger: RequestLogger
+): ConfiguredAdminApiKey {
+  if (apiKey.key === null) {
+    const error = new AdminApiConfigError();
+    logger.error('admin_api_key_missing', error, { method, path });
+    throw error;
+  }
+  return apiKey;
 }
 
 export class AdminApiClient {
@@ -75,9 +102,12 @@ export class AdminApiClient {
     const startTime = Date.now();
     const bodyString = body !== undefined ? JSON.stringify(body) : null;
 
+    const { key, source } = requireKey(this.config.apiKey, method, path, this.config.logger);
+
     this.config.logger.log('admin_api_request', {
       method,
       path,
+      key_source: source,
       body_keys: extractBodyKeys(body),
       body_size_bytes: bodyString?.length ?? 0,
     });
@@ -85,7 +115,7 @@ export class AdminApiClient {
     const response = await fetch(url, {
       method,
       headers: {
-        Authorization: `Bearer ${this.config.apiKey}`,
+        Authorization: `Bearer ${key}`,
         'Content-Type': 'application/json',
       },
       body: bodyString,
@@ -94,12 +124,19 @@ export class AdminApiClient {
     const duration = Date.now() - startTime;
 
     if (!response.ok) {
-      return handleNonOkResponse(response, method, path, duration, this.config.logger);
+      const errorBody = await response.text();
+      return handleNonOkResponse(response.status, errorBody, duration, {
+        method,
+        path,
+        logger: this.config.logger,
+        keySource: source,
+      });
     }
 
     this.config.logger.log('admin_api_response', {
       method,
       path,
+      key_source: source,
       status: response.status,
       duration_ms: duration,
     });

@@ -9,6 +9,7 @@
  */
 
 import type Anthropic from '@anthropic-ai/sdk';
+import { resolveAdminApiKey } from '../../config/admin-api-key.js';
 import { Env } from '../../config/types.js';
 import { ChatHistoryEntry, StreamCallbacks } from '../../types/engine.js';
 import {
@@ -21,6 +22,7 @@ import {
 } from '../../types/prompt-overrides.js';
 import { AdminApiClient } from '../admin-api/index.js';
 import {
+  AdminApiConfigError,
   AdminApiError,
   ClaudeAPIError,
   MCPError,
@@ -251,7 +253,7 @@ function createOrchestrationContext(
 
   const adminClient = new AdminApiClient({
     baseUrl: env.ENGINE_BASE_URL,
-    apiKey: env.ENGINE_API_KEY,
+    apiKey: resolveAdminApiKey(env),
     logger,
   });
 
@@ -393,6 +395,8 @@ function handleToolSuccess(
 function isDeterministicFailure(error: unknown): boolean {
   if (error instanceof ToolInputError) return true;
   if (error instanceof ValidationError) return true;
+  // Missing key: retrying cannot help until the deployment is reconfigured.
+  if (error instanceof AdminApiConfigError) return true;
   if (error instanceof AdminApiError) {
     const status = error.apiStatusCode;
     // Treat 4xx (except 429) as deterministic; 5xx and 429 may succeed on retry.

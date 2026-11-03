@@ -117,6 +117,31 @@ describe('orchestrate tool dispatch', () => {
     );
   });
 
+  it('sends ENGINE_API_KEY to the admin API when ADMIN_API_KEY is unset', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({})));
+    mockCallClaudeRaw
+      .mockResolvedValueOnce(toolUseResponse('get_prompt_overrides', {}))
+      .mockResolvedValueOnce(textResponse('Done'));
+
+    await orchestrate('test', buildOptions());
+    const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit;
+    expect(new Headers(init.headers).get('Authorization')).toBe('Bearer test-engine-key');
+  });
+
+  it('sends ADMIN_API_KEY to the admin API when it is set', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({})));
+    mockCallClaudeRaw
+      .mockResolvedValueOnce(toolUseResponse('get_prompt_overrides', {}))
+      .mockResolvedValueOnce(textResponse('Done'));
+
+    await orchestrate(
+      'test',
+      buildOptions({ env: { ...buildEnv(), ADMIN_API_KEY: 'test-admin-key' } })
+    );
+    const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit;
+    expect(new Headers(init.headers).get('Authorization')).toBe('Bearer test-admin-key');
+  });
+
   it('uses session org, not tool input org', async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({})));
     mockCallClaudeRaw

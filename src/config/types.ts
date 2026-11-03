@@ -10,7 +10,13 @@ export interface Env {
   // Secrets (set via wrangler secret put)
   ANTHROPIC_API_KEY: string;
   BARUCH_API_KEY: string;
-  ENGINE_API_KEY: string;
+  // Optional: admin calls fail cleanly (AdminApiConfigError) when neither
+  // this nor ADMIN_API_KEY is set.
+  ENGINE_API_KEY?: string;
+  // Optional dedicated key for bt-servant-worker's admin API. Falls back to
+  // ENGINE_API_KEY when unset or blank; read it via resolveAdminApiKey()
+  // in ./admin-api-key.ts.
+  ADMIN_API_KEY?: string;
   ENGINE_BASE_URL: string;
 
   // KV Namespaces

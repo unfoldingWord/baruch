@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AdminApiClient, encodePathParam } from '../../src/services/admin-api/client.js';
-import { AdminApiError } from '../../src/utils/errors.js';
+import { AdminApiConfigError, AdminApiError } from '../../src/utils/errors.js';
+import type { AdminApiKey } from '../../src/config/admin-api-key.js';
 
 const mockLogger = {
   log: vi.fn(),
@@ -16,7 +17,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   client = new AdminApiClient({
     baseUrl: 'https://api.example.com',
-    apiKey: 'test-key',
+    apiKey: { key: 'test-key', source: 'admin' },
     logger: mockLogger,
   });
 });
@@ -157,5 +158,47 @@ describe('encodePathParam', () => {
 
   it('rejects non-string values', () => {
     expect(() => encodePathParam(42, 'name')).toThrow(AdminApiError);
+  });
+});
+
+function keyClient(apiKey: AdminApiKey) {
+  return new AdminApiClient({ baseUrl: 'https://api.example.com', apiKey, logger: mockLogger });
+}
+
+describe('AdminApiClient key handling', () => {
+  it.each([401, 403])('adds key_source to admin_api_error on %i, never the key', async (status) => {
+    vi.mocked(fetch).mockResolvedValue(new Response('nope', { status }));
+    const c = keyClient({ key: 'engine-secret-value', source: 'engine_fallback' });
+    await expect(c.get('/admin/x')).rejects.toMatchObject({ apiStatusCode: status });
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      'admin_api_error',
+      expect.any(Error),
+      expect.objectContaining({ status, key_source: 'engine_fallback', path: '/admin/x' })
+    );
+    expect(JSON.stringify(mockLogger.error.mock.calls)).not.toContain('engine-secret-value');
+  });
+
+  it.each(['admin', 'engine_fallback'] as const)(
+    'puts key_source %s on admin_api_request and admin_api_response, never the key',
+    async (source) => {
+      vi.mocked(fetch).mockResolvedValue(new Response('{}'));
+      await keyClient({ key: 'secret-value', source }).get('/a');
+      const events = Object.fromEntries(mockLogger.log.mock.calls.map((c) => [c[0], c[1]]));
+      expect(events.admin_api_request).toMatchObject({ key_source: source });
+      expect(events.admin_api_response).toMatchObject({ key_source: source });
+      expect(JSON.stringify(mockLogger.log.mock.calls)).not.toContain('secret-value');
+    }
+  );
+
+  it('fails with AdminApiConfigError before logging or sending when no key is configured', async () => {
+    const c = keyClient({ key: null, source: 'missing' });
+    await expect(c.get('/admin/x')).rejects.toBeInstanceOf(AdminApiConfigError);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(mockLogger.log).not.toHaveBeenCalled();
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      'admin_api_key_missing',
+      expect.any(AdminApiConfigError),
+      { method: 'GET', path: '/admin/x' }
+    );
   });
 });

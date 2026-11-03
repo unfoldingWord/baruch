@@ -135,12 +135,19 @@ pnpm dev   # Start local dev server
 
 Set via `wrangler secret put <name>` or in `.dev.vars` for local dev:
 
-| Secret              | Description                |
-| ------------------- | -------------------------- |
-| `ANTHROPIC_API_KEY` | Anthropic API key          |
-| `BARUCH_API_KEY`    | Service authentication key |
-| `ENGINE_API_KEY`    | bt-servant-worker API key  |
-| `ENGINE_BASE_URL`   | bt-servant-worker base URL |
+| Secret              | Description                                                                                                                                                         |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ANTHROPIC_API_KEY` | Anthropic API key                                                                                                                                                   |
+| `BARUCH_API_KEY`    | Service authentication key                                                                                                                                          |
+| `ADMIN_API_KEY`     | bt-servant-worker admin API key, used for the admin API tools (optional; see below)                                                                                 |
+| `ENGINE_API_KEY`    | bt-servant-worker API key. Fallback for admin calls when `ADMIN_API_KEY` is unset; loses admin rights once bt-servant-worker requires the admin key on admin routes |
+| `ENGINE_BASE_URL`   | bt-servant-worker base URL                                                                                                                                          |
+
+#### Admin API key rollout
+
+Admin API tool calls use `ADMIN_API_KEY` and fall back to `ENGINE_API_KEY` when it is unset. `ADMIN_API_KEY` is trimmed, and an empty or whitespace-only value counts as unset. `ENGINE_API_KEY` is sent as configured (fetch normalizes surrounding whitespace in header values). If neither key is set, admin calls are not sent: they fail with a configuration error and log `admin_api_key_missing`. The `admin_api_request`, `admin_api_response` and `admin_api_error` logs (the last including a `401`/`403` from bt-servant-worker) carry `key_source`: `admin` or `engine_fallback`. Key values are never logged.
+
+Set `ADMIN_API_KEY` in an environment only after the bt-servant-worker release that adds `ADMIN_API_KEY` (bt-servant-worker PR #479) is deployed in that environment, and use that environment's worker admin key. Until then, leave it unset.
 
 ### Configuration Variables
 

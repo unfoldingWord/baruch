@@ -72,6 +72,29 @@ export default [
       // Warn on console.log (allow warn/error)
       'no-console': ['warn', { allow: ['warn', 'error'] }],
 
+      // @anthropic-ai/sdk is a devDependency used for types only (Claude is
+      // called with raw fetch). A value import would bundle SDK code into
+      // production that the production audit (pnpm audit --prod) never checks.
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@anthropic-ai/sdk',
+              allowTypeImports: true,
+              message: '@anthropic-ai/sdk is a devDependency: use `import type` only.',
+            },
+          ],
+          patterns: [
+            {
+              group: ['@anthropic-ai/sdk/*'],
+              allowTypeImports: true,
+              message: '@anthropic-ai/sdk is a devDependency: use `import type` only.',
+            },
+          ],
+        },
+      ],
+
       // Allow underscore-prefixed unused variables
       '@typescript-eslint/no-unused-vars': [
         'error',
