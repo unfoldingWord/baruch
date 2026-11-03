@@ -9,6 +9,7 @@
  */
 
 import type Anthropic from '@anthropic-ai/sdk';
+import { resolveAdminApiKey } from '../../config/admin-api-key.js';
 import { Env } from '../../config/types.js';
 import { ChatHistoryEntry, StreamCallbacks } from '../../types/engine.js';
 import {
@@ -19,7 +20,7 @@ import {
   resolvePromptOverrides,
   validatePromptOverrides,
 } from '../../types/prompt-overrides.js';
-import { AdminApiClient, resolveAdminApiKey } from '../admin-api/index.js';
+import { AdminApiClient } from '../admin-api/index.js';
 import {
   AdminApiError,
   ClaudeAPIError,
@@ -251,7 +252,7 @@ function createOrchestrationContext(
 
   const adminClient = new AdminApiClient({
     baseUrl: env.ENGINE_BASE_URL,
-    apiKey: resolveAdminApiKey(env),
+    apiKey: resolveAdminApiKey(env, logger),
     logger,
   });
 

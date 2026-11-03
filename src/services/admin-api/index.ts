@@ -1,4 +1,4 @@
-export { AdminApiClient, resolveAdminApiKey } from './client.js';
+export { AdminApiClient } from './client.js';
 export type { AdminApiClientConfig } from './client.js';
 export { getPromptOverrides, setPromptOverrides } from './prompt-overrides.js';
 export { listModes, getMode, createOrUpdateMode, deleteMode } from './modes.js';
