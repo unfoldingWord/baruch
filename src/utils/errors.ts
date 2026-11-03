@@ -64,6 +64,18 @@ export class AdminApiError extends AppError {
   }
 }
 
+/**
+ * Baruch itself has no key for bt-servant-worker's admin API (neither
+ * ADMIN_API_KEY nor ENGINE_API_KEY is set). A configuration problem, not a
+ * worker response, so it carries no API status.
+ */
+export class AdminApiConfigError extends AppError {
+  constructor(message: string = 'Admin API key is not configured for Baruch') {
+    super(message, 'ADMIN_API_CONFIG_ERROR', 500);
+    this.name = 'AdminApiConfigError';
+  }
+}
+
 export class TimeoutError extends AppError {
   constructor(message: string = 'Operation timed out') {
     super(message, 'TIMEOUT_ERROR', 504);

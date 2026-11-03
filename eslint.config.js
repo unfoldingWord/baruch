@@ -73,7 +73,8 @@ export default [
       'no-console': ['warn', { allow: ['warn', 'error'] }],
 
       // @anthropic-ai/sdk is a devDependency used for types only (Claude is
-      // called with raw fetch), so value imports would break the bundle.
+      // called with raw fetch). A value import would bundle SDK code into
+      // production that the production audit (pnpm audit --prod) never checks.
       '@typescript-eslint/no-restricted-imports': [
         'error',
         {

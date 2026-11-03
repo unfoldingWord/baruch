@@ -2,7 +2,6 @@
  * Picks the bearer key for bt-servant-worker's admin API.
  */
 
-import { RequestLogger } from '../utils/logger.js';
 import { Env } from './types.js';
 
 export type AdminApiKeySource = 'admin' | 'engine_fallback';
@@ -25,22 +24,7 @@ export function resolveAdminApiKey(
 ): AdminApiKey {
   const adminKey = env.ADMIN_API_KEY?.trim();
   if (adminKey) return { key: adminKey, source: 'admin' };
-  const engineKey = env.ENGINE_API_KEY as string | undefined;
+  const engineKey = env.ENGINE_API_KEY;
   if (engineKey?.trim()) return { key: engineKey, source: 'engine_fallback' };
   return { key: null, source: 'missing' };
-}
-
-// The key source is logged on the first admin API call in each isolate:
-// enough to show which key admin calls use without repeating it per call.
-let keySourceLogged = false;
-
-/** Log `admin_api_key_source` once per isolate. Never logs the key. */
-export function logAdminApiKeySourceOnce(logger: RequestLogger, source: AdminApiKeySource): void {
-  if (keySourceLogged) return;
-  keySourceLogged = true;
-  if (source === 'admin') {
-    logger.info('admin_api_key_source', { key_source: source });
-  } else {
-    logger.warn('admin_api_key_source', { key_source: source });
-  }
 }

@@ -39,9 +39,7 @@ describe('resolveAdminApiKey', () => {
 
   it('reports missing when ENGINE_API_KEY is also missing or blank', () => {
     expect(resolveAdminApiKey({ ENGINE_API_KEY: '  ' })).toEqual({ key: null, source: 'missing' });
-    expect(
-      resolveAdminApiKey({ ENGINE_API_KEY: undefined as unknown as string, ADMIN_API_KEY: '' })
-    ).toEqual({ key: null, source: 'missing' });
+    expect(resolveAdminApiKey({ ADMIN_API_KEY: '' })).toEqual({ key: null, source: 'missing' });
   });
 
   it('is pure: the same env gives a fresh, current answer', () => {

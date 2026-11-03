@@ -5,12 +5,8 @@
  * ENGINE_BASE_URL.
  */
 
-import {
-  logAdminApiKeySourceOnce,
-  type AdminApiKey,
-  type AdminApiKeySource,
-} from '../../config/admin-api-key.js';
-import { AdminApiError } from '../../utils/errors.js';
+import type { AdminApiKey, AdminApiKeySource } from '../../config/admin-api-key.js';
+import { AdminApiConfigError, AdminApiError } from '../../utils/errors.js';
 import { RequestLogger } from '../../utils/logger.js';
 
 export interface AdminApiClientConfig {
@@ -66,26 +62,24 @@ function handleNonOkResponse(
   throw new AdminApiError(`Admin API ${method} ${path} returned ${status}: ${errorBody}`, status);
 }
 
+type ConfiguredAdminApiKey = Extract<AdminApiKey, { key: string }>;
+
 /**
- * The key to send, or a clean failure when neither ADMIN_API_KEY nor
- * ENGINE_API_KEY is configured (never send "Bearer undefined"). The 401 is
- * what the worker returns for a missing bearer, so the orchestrator treats
- * it as a deterministic failure and does not retry it.
+ * The configured key, narrowed, or a clean AdminApiConfigError when neither
+ * ADMIN_API_KEY nor ENGINE_API_KEY is set (never send "Bearer undefined").
  */
-function requireKey(apiKey: AdminApiKey, method: string, path: string, logger: RequestLogger) {
+function requireKey(
+  apiKey: AdminApiKey,
+  method: string,
+  path: string,
+  logger: RequestLogger
+): ConfiguredAdminApiKey {
   if (apiKey.key === null) {
-    logger.error(
-      'admin_api_key_missing',
-      new Error('Neither ADMIN_API_KEY nor ENGINE_API_KEY is set'),
-      {
-        method,
-        path,
-      }
-    );
-    throw new AdminApiError('Admin API key is not configured for Baruch', 401);
+    const error = new AdminApiConfigError();
+    logger.error('admin_api_key_missing', error, { method, path });
+    throw error;
   }
-  logAdminApiKeySourceOnce(logger, apiKey.source);
-  return { key: apiKey.key, source: apiKey.source };
+  return apiKey;
 }
 
 export class AdminApiClient {
@@ -108,14 +102,15 @@ export class AdminApiClient {
     const startTime = Date.now();
     const bodyString = body !== undefined ? JSON.stringify(body) : null;
 
+    const { key, source } = requireKey(this.config.apiKey, method, path, this.config.logger);
+
     this.config.logger.log('admin_api_request', {
       method,
       path,
+      key_source: source,
       body_keys: extractBodyKeys(body),
       body_size_bytes: bodyString?.length ?? 0,
     });
-
-    const { key, source } = requireKey(this.config.apiKey, method, path, this.config.logger);
 
     const response = await fetch(url, {
       method,
@@ -141,6 +136,7 @@ export class AdminApiClient {
     this.config.logger.log('admin_api_response', {
       method,
       path,
+      key_source: source,
       status: response.status,
       duration_ms: duration,
     });
