@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AdminApiClient, encodePathParam } from '../../src/services/admin-api/client.js';
 import { AdminApiError } from '../../src/utils/errors.js';
+import type { AdminApiKey } from '../../src/config/admin-api-key.js';
 
 const mockLogger = {
   log: vi.fn(),
@@ -160,48 +161,61 @@ describe('encodePathParam', () => {
   });
 });
 
-describe('AdminApiClient key logging', () => {
-  it('logs admin_api_key_rejected with the key source on 401 and 403, never the key', async () => {
-    for (const status of [401, 403]) {
-      vi.clearAllMocks();
-      vi.mocked(fetch).mockResolvedValue(new Response('nope', { status }));
-      const fallbackClient = new AdminApiClient({
-        baseUrl: 'https://api.example.com',
-        apiKey: { key: 'engine-secret-value', source: 'engine_fallback' },
-        logger: mockLogger,
-      });
-      await expect(fallbackClient.get('/admin/x')).rejects.toThrow(AdminApiError);
-      expect(mockLogger.warn).toHaveBeenCalledWith('admin_api_key_rejected', {
-        key_source: 'engine_fallback',
-        status,
-        method: 'GET',
-        path: '/admin/x',
-      });
-      expect(JSON.stringify(mockLogger.warn.mock.calls)).not.toContain('engine-secret-value');
-    }
+// Fresh module graph per test: the key-source log flag is per isolate.
+async function freshClient(apiKey: AdminApiKey) {
+  vi.resetModules();
+  const fresh = await import('../../src/services/admin-api/client.js');
+  return new fresh.AdminApiClient({
+    baseUrl: 'https://api.example.com',
+    apiKey,
+    logger: mockLogger,
   });
-
-  it('does not log admin_api_key_rejected on other errors', async () => {
-    vi.mocked(fetch).mockResolvedValue(new Response('boom', { status: 500 }));
-    await expect(client.get('/admin/x')).rejects.toThrow(AdminApiError);
-    const events = mockLogger.warn.mock.calls.map((c) => c[0]);
-    expect(events).not.toContain('admin_api_key_rejected');
+}
+describe('AdminApiClient key handling', () => {
+  it.each([401, 403])('adds key_source to admin_api_error on %i, never the key', async (status) => {
+    vi.mocked(fetch).mockResolvedValue(new Response('nope', { status }));
+    const c = await freshClient({ key: 'engine-secret-value', source: 'engine_fallback' });
+    await expect(c.get('/admin/x')).rejects.toMatchObject({ apiStatusCode: status });
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      'admin_api_error',
+      expect.any(Error),
+      expect.objectContaining({ status, key_source: 'engine_fallback', path: '/admin/x' })
+    );
+    expect(JSON.stringify(mockLogger.error.mock.calls)).not.toContain('engine-secret-value');
   });
+});
 
-  it('logs the key source once per isolate, on the first admin API call', async () => {
-    vi.resetModules();
-    const fresh = await import('../../src/services/admin-api/client.js');
+describe('AdminApiClient key-source log and missing key', () => {
+  it('logs the admin key source once, at info, on the first call', async () => {
     vi.mocked(fetch).mockImplementation(async () => new Response('{}'));
-    const freshClient = new fresh.AdminApiClient({
-      baseUrl: 'https://api.example.com',
-      apiKey: { key: 'admin-secret-value', source: 'admin' },
-      logger: mockLogger,
-    });
+    const c = await freshClient({ key: 'admin-secret-value', source: 'admin' });
     expect(mockLogger.info).not.toHaveBeenCalled();
-    await freshClient.get('/a');
-    await freshClient.get('/b');
-    const sourceLogs = mockLogger.info.mock.calls.filter((c) => c[0] === 'admin_api_key_source');
-    expect(sourceLogs).toEqual([['admin_api_key_source', { key_source: 'admin' }]]);
+    await c.get('/a');
+    await c.get('/b');
+    const logs = mockLogger.info.mock.calls.filter((call) => call[0] === 'admin_api_key_source');
+    expect(logs).toEqual([['admin_api_key_source', { key_source: 'admin' }]]);
+    expect(mockLogger.warn).not.toHaveBeenCalled();
     expect(JSON.stringify(mockLogger.info.mock.calls)).not.toContain('admin-secret-value');
+  });
+
+  it('logs engine_fallback once, at warn, on the first call', async () => {
+    vi.mocked(fetch).mockImplementation(async () => new Response('{}'));
+    const c = await freshClient({ key: 'engine-secret-value', source: 'engine_fallback' });
+    await c.get('/a');
+    await c.get('/b');
+    expect(mockLogger.warn.mock.calls).toEqual([
+      ['admin_api_key_source', { key_source: 'engine_fallback' }],
+    ]);
+    expect(JSON.stringify(mockLogger.warn.mock.calls)).not.toContain('engine-secret-value');
+  });
+
+  it('fails cleanly without sending when no key is configured', async () => {
+    const c = await freshClient({ key: null, source: 'missing' });
+    await expect(c.get('/admin/x')).rejects.toMatchObject({ apiStatusCode: 401 });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(mockLogger.error).toHaveBeenCalledWith('admin_api_key_missing', expect.any(Error), {
+      method: 'GET',
+      path: '/admin/x',
+    });
   });
 });

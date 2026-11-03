@@ -22,7 +22,9 @@ describe('resolveAdminApiKey', () => {
     });
   });
 
-  it('sends ENGINE_API_KEY untrimmed on the fallback, exactly as configured', () => {
+  it('does not trim ENGINE_API_KEY itself (Baruch passes it on as configured)', () => {
+    // fetch then normalizes surrounding whitespace in the header value, as it
+    // did before ADMIN_API_KEY existed.
     expect(resolveAdminApiKey({ ENGINE_API_KEY: ' engine\n' }).key).toBe(' engine\n');
   });
 
@@ -35,10 +37,17 @@ describe('resolveAdminApiKey', () => {
     );
   });
 
-  it('resolves once per env object', () => {
+  it('reports missing when ENGINE_API_KEY is also missing or blank', () => {
+    expect(resolveAdminApiKey({ ENGINE_API_KEY: '  ' })).toEqual({ key: null, source: 'missing' });
+    expect(
+      resolveAdminApiKey({ ENGINE_API_KEY: undefined as unknown as string, ADMIN_API_KEY: '' })
+    ).toEqual({ key: null, source: 'missing' });
+  });
+
+  it('is pure: the same env gives a fresh, current answer', () => {
     const env: { ADMIN_API_KEY?: string; ENGINE_API_KEY: string } = { ENGINE_API_KEY: 'engine' };
-    const first = resolveAdminApiKey(env);
+    expect(resolveAdminApiKey(env).source).toBe('engine_fallback');
     env.ADMIN_API_KEY = 'admin';
-    expect(resolveAdminApiKey(env)).toBe(first);
+    expect(resolveAdminApiKey(env).source).toBe('admin');
   });
 });

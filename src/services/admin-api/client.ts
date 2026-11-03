@@ -5,7 +5,11 @@
  * ENGINE_BASE_URL.
  */
 
-import type { AdminApiKey, AdminApiKeySource } from '../../config/admin-api-key.js';
+import {
+  logAdminApiKeySourceOnce,
+  type AdminApiKey,
+  type AdminApiKeySource,
+} from '../../config/admin-api-key.js';
 import { AdminApiError } from '../../utils/errors.js';
 import { RequestLogger } from '../../utils/logger.js';
 
@@ -14,37 +18,6 @@ export interface AdminApiClientConfig {
   /** From resolveAdminApiKey(env) in src/config/admin-api-key.ts. */
   apiKey: AdminApiKey;
   logger: RequestLogger;
-}
-
-// The key source is logged on the first admin API call in each isolate:
-// enough to show which key admin calls use without repeating it per call.
-let keySourceLogged = false;
-
-function logKeySourceOnce(logger: RequestLogger, source: AdminApiKeySource): void {
-  if (keySourceLogged) return;
-  keySourceLogged = true;
-  if (source === 'admin') {
-    logger.info('admin_api_key_source', { key_source: source });
-  } else {
-    logger.warn('admin_api_key_source', { key_source: source });
-  }
-}
-
-/** 401/403 from the worker: log which key was rejected (source only, never the value). */
-function logKeyRejected(
-  logger: RequestLogger,
-  source: AdminApiKeySource,
-  response: Response,
-  method: string,
-  path: string
-): void {
-  if (response.status !== 401 && response.status !== 403) return;
-  logger.warn('admin_api_key_rejected', {
-    key_source: source,
-    status: response.status,
-    method,
-    path,
-  });
 }
 
 function extractBodyKeys(body: unknown): string[] {
@@ -68,25 +41,51 @@ export function encodePathParam(value: unknown, paramName: string): string {
   return encodeURIComponent(value);
 }
 
-async function handleNonOkResponse(
-  response: Response,
-  method: string,
-  path: string,
+interface RequestContext {
+  method: string;
+  path: string;
+  logger: RequestLogger;
+  keySource: AdminApiKeySource;
+}
+
+function handleNonOkResponse(
+  status: number,
+  errorBody: string,
   duration: number,
-  logger: RequestLogger
-): Promise<never> {
-  const errorBody = await response.text();
+  ctx: RequestContext
+): never {
+  const { method, path, logger, keySource } = ctx;
   logger.error('admin_api_error', new Error(errorBody), {
     method,
     path,
-    status: response.status,
+    status,
+    key_source: keySource,
     duration_ms: duration,
     response_body: errorBody.slice(0, 1024),
   });
-  throw new AdminApiError(
-    `Admin API ${method} ${path} returned ${response.status}: ${errorBody}`,
-    response.status
-  );
+  throw new AdminApiError(`Admin API ${method} ${path} returned ${status}: ${errorBody}`, status);
+}
+
+/**
+ * The key to send, or a clean failure when neither ADMIN_API_KEY nor
+ * ENGINE_API_KEY is configured (never send "Bearer undefined"). The 401 is
+ * what the worker returns for a missing bearer, so the orchestrator treats
+ * it as a deterministic failure and does not retry it.
+ */
+function requireKey(apiKey: AdminApiKey, method: string, path: string, logger: RequestLogger) {
+  if (apiKey.key === null) {
+    logger.error(
+      'admin_api_key_missing',
+      new Error('Neither ADMIN_API_KEY nor ENGINE_API_KEY is set'),
+      {
+        method,
+        path,
+      }
+    );
+    throw new AdminApiError('Admin API key is not configured for Baruch', 401);
+  }
+  logAdminApiKeySourceOnce(logger, apiKey.source);
+  return { key: apiKey.key, source: apiKey.source };
 }
 
 export class AdminApiClient {
@@ -116,8 +115,7 @@ export class AdminApiClient {
       body_size_bytes: bodyString?.length ?? 0,
     });
 
-    const { key, source } = this.config.apiKey;
-    logKeySourceOnce(this.config.logger, source);
+    const { key, source } = requireKey(this.config.apiKey, method, path, this.config.logger);
 
     const response = await fetch(url, {
       method,
@@ -131,8 +129,13 @@ export class AdminApiClient {
     const duration = Date.now() - startTime;
 
     if (!response.ok) {
-      logKeyRejected(this.config.logger, source, response, method, path);
-      return handleNonOkResponse(response, method, path, duration, this.config.logger);
+      const errorBody = await response.text();
+      return handleNonOkResponse(response.status, errorBody, duration, {
+        method,
+        path,
+        logger: this.config.logger,
+        keySource: source,
+      });
     }
 
     this.config.logger.log('admin_api_response', {

@@ -145,7 +145,7 @@ Set via `wrangler secret put <name>` or in `.dev.vars` for local dev:
 
 #### Admin API key rollout
 
-Admin API tool calls use `ADMIN_API_KEY` and fall back to `ENGINE_API_KEY` when it is unset. `ADMIN_API_KEY` is trimmed, and an empty or whitespace-only value counts as unset; `ENGINE_API_KEY` is sent exactly as configured. The key is resolved once per isolate. The first admin API call in each isolate logs `admin_api_key_source` with `key_source` set to `admin` or `engine_fallback`, and a `401`/`403` from bt-servant-worker logs `admin_api_key_rejected` with the same `key_source`. Key values are never logged.
+Admin API tool calls use `ADMIN_API_KEY` and fall back to `ENGINE_API_KEY` when it is unset. `ADMIN_API_KEY` is trimmed, and an empty or whitespace-only value counts as unset. `ENGINE_API_KEY` is sent as configured (fetch normalizes surrounding whitespace in header values). If neither key is set, admin calls are not sent and log `admin_api_key_missing`. The first admin API call in each isolate logs `admin_api_key_source` with `key_source` set to `admin` or `engine_fallback`, and every `admin_api_error` log (including a `401`/`403` from bt-servant-worker) carries the same `key_source`. Key values are never logged.
 
 Set `ADMIN_API_KEY` in an environment only after the bt-servant-worker release that adds `ADMIN_API_KEY` (bt-servant-worker PR #479) is deployed in that environment, and use that environment's worker admin key. Until then, leave it unset.
 
