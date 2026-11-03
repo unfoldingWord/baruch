@@ -22,8 +22,8 @@ describe('resolveAdminApiKey', () => {
     });
   });
 
-  it('trims ENGINE_API_KEY on the fallback too', () => {
-    expect(resolveAdminApiKey({ ENGINE_API_KEY: ' engine\n' }).key).toBe('engine');
+  it('sends ENGINE_API_KEY untrimmed on the fallback, exactly as configured', () => {
+    expect(resolveAdminApiKey({ ENGINE_API_KEY: ' engine\n' }).key).toBe(' engine\n');
   });
 
   it('treats an empty or whitespace-only ADMIN_API_KEY as unset', () => {

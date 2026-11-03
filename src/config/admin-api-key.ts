@@ -20,9 +20,9 @@ const resolved = new WeakMap<KeyEnv, AdminApiKey>();
 
 /**
  * The trimmed ADMIN_API_KEY when it is set and non-blank (source `admin`);
- * otherwise the trimmed ENGINE_API_KEY (source `engine_fallback`), so a
- * deploy without the new secret keeps working. Whitespace-only counts as
- * unset.
+ * otherwise ENGINE_API_KEY exactly as configured (source `engine_fallback`,
+ * untrimmed, because the worker compares it untrimmed), so a deploy without
+ * the new secret keeps working. Whitespace-only counts as unset.
  */
 export function resolveAdminApiKey(env: KeyEnv): AdminApiKey {
   const cached = resolved.get(env);
@@ -30,7 +30,7 @@ export function resolveAdminApiKey(env: KeyEnv): AdminApiKey {
   const adminKey = env.ADMIN_API_KEY?.trim();
   const result: AdminApiKey = adminKey
     ? { key: adminKey, source: 'admin' }
-    : { key: env.ENGINE_API_KEY.trim(), source: 'engine_fallback' };
+    : { key: env.ENGINE_API_KEY, source: 'engine_fallback' };
   resolved.set(env, result);
   return result;
 }
