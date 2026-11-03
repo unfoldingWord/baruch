@@ -72,6 +72,28 @@ export default [
       // Warn on console.log (allow warn/error)
       'no-console': ['warn', { allow: ['warn', 'error'] }],
 
+      // @anthropic-ai/sdk is a devDependency used for types only (Claude is
+      // called with raw fetch), so value imports would break the bundle.
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@anthropic-ai/sdk',
+              allowTypeImports: true,
+              message: '@anthropic-ai/sdk is a devDependency: use `import type` only.',
+            },
+          ],
+          patterns: [
+            {
+              group: ['@anthropic-ai/sdk/*'],
+              allowTypeImports: true,
+              message: '@anthropic-ai/sdk is a devDependency: use `import type` only.',
+            },
+          ],
+        },
+      ],
+
       // Allow underscore-prefixed unused variables
       '@typescript-eslint/no-unused-vars': [
         'error',

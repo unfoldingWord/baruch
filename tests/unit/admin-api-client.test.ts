@@ -16,7 +16,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   client = new AdminApiClient({
     baseUrl: 'https://api.example.com',
-    apiKey: 'test-key',
+    apiKey: { key: 'test-key', source: 'admin' },
     logger: mockLogger,
   });
 });
@@ -157,5 +157,51 @@ describe('encodePathParam', () => {
 
   it('rejects non-string values', () => {
     expect(() => encodePathParam(42, 'name')).toThrow(AdminApiError);
+  });
+});
+
+describe('AdminApiClient key logging', () => {
+  it('logs admin_api_key_rejected with the key source on 401 and 403, never the key', async () => {
+    for (const status of [401, 403]) {
+      vi.clearAllMocks();
+      vi.mocked(fetch).mockResolvedValue(new Response('nope', { status }));
+      const fallbackClient = new AdminApiClient({
+        baseUrl: 'https://api.example.com',
+        apiKey: { key: 'engine-secret-value', source: 'engine_fallback' },
+        logger: mockLogger,
+      });
+      await expect(fallbackClient.get('/admin/x')).rejects.toThrow(AdminApiError);
+      expect(mockLogger.warn).toHaveBeenCalledWith('admin_api_key_rejected', {
+        key_source: 'engine_fallback',
+        status,
+        method: 'GET',
+        path: '/admin/x',
+      });
+      expect(JSON.stringify(mockLogger.warn.mock.calls)).not.toContain('engine-secret-value');
+    }
+  });
+
+  it('does not log admin_api_key_rejected on other errors', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response('boom', { status: 500 }));
+    await expect(client.get('/admin/x')).rejects.toThrow(AdminApiError);
+    const events = mockLogger.warn.mock.calls.map((c) => c[0]);
+    expect(events).not.toContain('admin_api_key_rejected');
+  });
+
+  it('logs the key source once per isolate, on the first admin API call', async () => {
+    vi.resetModules();
+    const fresh = await import('../../src/services/admin-api/client.js');
+    vi.mocked(fetch).mockImplementation(async () => new Response('{}'));
+    const freshClient = new fresh.AdminApiClient({
+      baseUrl: 'https://api.example.com',
+      apiKey: { key: 'admin-secret-value', source: 'admin' },
+      logger: mockLogger,
+    });
+    expect(mockLogger.info).not.toHaveBeenCalled();
+    await freshClient.get('/a');
+    await freshClient.get('/b');
+    const sourceLogs = mockLogger.info.mock.calls.filter((c) => c[0] === 'admin_api_key_source');
+    expect(sourceLogs).toEqual([['admin_api_key_source', { key_source: 'admin' }]]);
+    expect(JSON.stringify(mockLogger.info.mock.calls)).not.toContain('admin-secret-value');
   });
 });

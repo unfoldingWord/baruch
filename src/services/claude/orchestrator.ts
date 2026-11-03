@@ -252,7 +252,7 @@ function createOrchestrationContext(
 
   const adminClient = new AdminApiClient({
     baseUrl: env.ENGINE_BASE_URL,
-    apiKey: resolveAdminApiKey(env, logger),
+    apiKey: resolveAdminApiKey(env),
     logger,
   });
 
