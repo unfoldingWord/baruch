@@ -1,5 +1,23 @@
 # Baruch — AI Configuration Assistant for BT Servant
 
+## CRITICAL: Branching Model (develop → main)
+
+Two long-lived branches:
+
+- **`develop`** is the integration branch and the default branch. Every feature branch and every PR targets `develop`. Staging deploys automatically after CI passes on a push to `develop`. Bot review plus CI is enough to merge there.
+- **`main`** is the release branch. It only ever receives `develop` (a release PR, "Release vX.Y.Z: develop → main") or a `hotfix/*` branch. Only the repo owner can merge to `main` (branch protection restricts pushes and requires a code-owner review; see `.github/CODEOWNERS`). Production deploys from `main` by tag.
+- **Rule: `develop` is always releasable.** Work that is not ready to ship stays on its feature branch, or merges behind a flag that is off in production. Never cherry-pick into `main`; if something on `develop` must not ship, revert it on `develop` or flag it off, then release.
+- **Hotfix:** branch from `main` as `hotfix/<name>`, PR into `main`, then open a PR from `main` into `develop` the same day so `develop` stays ahead of `main`.
+- **Release:** merge the release PR, tag `v<version>` on the resulting `main` commit, dispatch the production deploy on that tag.
+- **Merge methods:** feature PRs into `develop` are **squash**-merged (`develop` requires linear history). Release and hotfix PRs into `main` use a **merge commit**, never squash or rebase; a ruleset on `main` allows only merge commits. A squash would copy `develop`'s work into a new commit that `develop` never contains, so the branches would diverge and every later release PR would re-list already-shipped commits. With merge commits, the next release PR shows only what is new, and `git log --first-parent main` lists one commit per release. Never delete `develop` when merging a release PR.
+- **Up to date before merge:** `develop` requires a PR branch to be current with `develop` before it merges (use "Update branch"), so two PRs that pass alone cannot break together. `main` does not, because `develop` never contains `main`'s release merge commits.
+
+CI's `Release Source` job refuses a PR into `main` from any other branch. The production deploy (`deploy-prod.yml`) refuses to run on anything but a `v*` tag that is on `main`. `tests/unit/workflows-branching.test.ts` pins these triggers and guards.
+
+### Ask Before Pushing
+
+**ALWAYS ask the user before pushing changes.** Always create a feature branch and a PR against `develop`. Never push to `develop` or `main` directly.
+
 ## Project Overview
 
 Baruch is a Cloudflare Worker that powers an AI configuration assistant and knowledge base guide. Admins chat with Baruch to configure bt-servant-worker (prompt overrides, modes, MCP servers) via admin API tools. Baruch also uses MCP tools directly to help users access connected knowledge bases.
@@ -17,7 +35,7 @@ Baruch is a Cloudflare Worker that powers an AI configuration assistant and know
 
 ### Never Do
 
-- Never push directly to main without asking
+- Never push directly to `develop` or `main`; every change is a PR into `develop`
 - Never run `wrangler deploy` directly — all deploys through CI/CD
 - Never merge a PR without user permission
 - Never commit secrets or `.dev.vars`
@@ -86,6 +104,27 @@ Single-tier override: admin KV overrides → hardcoded defaults (no user/mode hi
 
 ### Environments
 
-- **dev**: `baruch-dev` — auto-deployed on PRs to main
-- **staging**: `baruch-staging` — deployed when CI passes on main
-- **prod**: `baruch` — manual dispatch only
+- **dev**: `baruch-dev` — auto-deployed on PRs into `develop` or `main` (`deploy-dev.yml`, or manual dispatch)
+- **staging**: `baruch-staging` — deploys automatically after CI succeeds on a **push to `develop`** (`deploy-staging.yml`). PR branches never deploy, and CI runs for a release PR (whose head is also `develop`) do not deploy either.
+- **prod**: `baruch` — manual `workflow_dispatch` of `deploy-prod.yml`, and only on a `v*` release tag that is on `main`. Any other ref is refused before anything deploys:
+
+  ```bash
+  gh workflow run deploy-prod.yml --ref v<version>
+  ```
+
+### Version Bumping and Release Tags
+
+Every PR bumps the version in `package.json` on its branch, before the final push (the `version` lifecycle hook regenerates `src/generated/version.ts`):
+
+- **Patch** (`pnpm version patch --no-git-tag-version`): bug fixes, docs, CI, minor tweaks
+- **Minor** (`pnpm version minor --no-git-tag-version`): new features, behavioral changes
+
+Use `--no-git-tag-version` on branches; feature PRs into `develop` are not tagged. After a release PR (`develop` → `main`) or hotfix is merged, tag the resulting `main` commit and push the tag, then dispatch the production deploy on it:
+
+```bash
+git checkout main && git pull
+git tag v<version>
+git push origin v<version>
+```
+
+Tags are created on `main` only, never on `develop`.

@@ -233,15 +233,17 @@ src/
 
 ## Environments
 
-| Environment | Worker Name      | Deploy Trigger                          |
-| ----------- | ---------------- | --------------------------------------- |
-| dev         | `baruch-dev`     | Auto on PR to main (or manual dispatch) |
-| staging     | `baruch-staging` | Auto when CI passes on main             |
-| production  | `baruch`         | Manual dispatch only                    |
+| Environment | Worker Name      | Deploy Trigger                                            |
+| ----------- | ---------------- | --------------------------------------------------------- |
+| dev         | `baruch-dev`     | Auto on PRs into `develop` or `main` (or manual dispatch) |
+| staging     | `baruch-staging` | Auto after CI passes on a push to `develop`               |
+| production  | `baruch`         | Manual dispatch on a `v*` release tag that is on `main`   |
+
+Branches: `develop` is the integration branch and the default; `main` is release-only and receives `develop` through a release PR (or a `hotfix/*` branch). See `CLAUDE.md` "Branching Model".
 
 ## CI/CD
 
-GitHub Actions pipeline on every push/PR to main:
+GitHub Actions pipeline on every push/PR to `develop` or `main` (plus a `Release Source` job that refuses a PR into `main` unless it comes from `develop` or `hotfix/*`):
 
 1. **Security audit** -- `pnpm audit --prod` (hard fail) + full-tree audit (informational)
 2. **Lint** -- format check + ESLint
